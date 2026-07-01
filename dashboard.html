@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StashWear — Coleção Completa</title>
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <main class="dashboard-shell">
+    <header class="dashboard-header">
+      <div class="brand-area">
+        <img src="icons/icon48.png" width="36" height="36" alt="StashWear" />
+        <div>
+          <h1>StashWear</h1>
+          <p>Sua coleção pessoal de moda</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-account" class="ghost-btn">Entrar</button>
+        <div id="sync-status" class="sync-status offline" title="Status da sincronizacao">
+          <span class="sync-dot"></span>
+          <span id="sync-status-label">Offline</span>
+        </div>
+        <button id="btn-refresh" class="ghost-btn">Atualizar</button>
+        <div class="notification-center">
+          <button id="notification-bell" class="notification-bell" type="button" aria-label="Notificações de preço" aria-expanded="false">
+            <svg class="notification-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15.8 17H8.2c-.9 0-1.4-1-.9-1.7l.6-.9c.5-.7.7-1.5.7-2.4V9.8a3.4 3.4 0 0 1 6.8 0V12c0 .9.2 1.7.7 2.4l.6.9c.5.7 0 1.7-.9 1.7Z"/>
+              <path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/>
+            </svg>
+            <span id="notification-dot" class="notification-dot" hidden></span>
+          </button>
+          <div id="notification-panel" class="notification-panel" hidden></div>
+        </div>
+        <button id="btn-open-popup-tip" class="solid-btn">Como salvar</button>
+      </div>
+    </header>
+
+    <section class="hero-grid">
+      <article id="curation-card" class="curation-card"></article>
+      <aside class="decisions-panel">
+        <span class="eyebrow">Próximas decisões</span>
+        <div id="decisions-grid" class="decisions-grid"></div>
+      </aside>
+    </section>
+
+    <nav class="dash-nav" aria-label="Navegação da coleção">
+      <button class="dash-tab active" data-view="collection">Coleção</button>
+      <button class="dash-tab" data-view="priorities">Prioridades</button>
+      <button class="dash-tab" data-view="folders">Pastas</button>
+      <button class="dash-tab" data-view="favorites">Favoritas</button>
+      <button class="dash-tab" data-view="timeline">Timeline</button>
+      <button class="dash-tab" data-view="stores">Lojas</button>
+      <button class="dash-tab" data-view="analysis">Análise</button>
+    </nav>
+
+    <section id="view-collection" class="dash-view active">
+      <div class="view-header">
+        <div>
+          <span class="eyebrow">Todas as peças</span>
+          <h2>Coleção</h2>
+        </div>
+        <div class="controls-row">
+          <input id="search-input" type="search" placeholder="Buscar por peça, loja, tipo, etiqueta..." />
+          <select id="sort-select-dashboard">
+            <option value="date">Recentes</option>
+            <option value="curation">Mais relevantes</option>
+            <option value="priceDesc">Maior preço</option>
+            <option value="priceAsc">Menor preço</option>
+            <option value="store">Loja</option>
+          </select>
+        </div>
+      </div>
+      <div class="collection-filter-block">
+        <span class="filter-label">Filtrar por tipo da peça</span>
+        <div id="type-filter-dashboard" class="filter-row type-filter-row"></div>
+      </div>
+      <div class="collection-filter-block">
+        <span class="filter-label">Filtrar por loja</span>
+        <div id="store-filter-dashboard" class="filter-row type-filter-row"></div>
+      </div>
+      <div id="collection-grid" class="collection-grid"></div>
+    </section>
+
+    <section id="view-priorities" class="dash-view">
+      <div class="view-header">
+        <div>
+          <span class="eyebrow">Organização</span>
+          <h2>Prioridades</h2>
+        </div>
+        <div id="priority-filter-dashboard" class="filter-row"></div>
+      </div>
+      <div id="priorities-grid" class="collection-grid"></div>
+    </section>
+
+    <section id="view-folders" class="dash-view">
+      <div class="view-header">
+        <div>
+          <span class="eyebrow">Conjuntos salvos</span>
+          <h2>Pastas</h2>
+        </div>
+        <form id="folder-form" class="folder-form">
+          <input id="folder-name-input" type="text" placeholder="Nova pasta" maxlength="40" />
+          <button class="solid-btn" type="submit">Criar pasta</button>
+        </form>
+      </div>
+      <div class="folder-layout">
+        <aside class="folder-sidebar">
+          <div id="folder-list" class="folder-list"></div>
+        </aside>
+        <div class="folder-content">
+          <div id="folder-current" class="folder-current"></div>
+          <div id="folder-picker" class="folder-picker"></div>
+          <div id="folders-grid" class="collection-grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-favorites" class="dash-view">
+      <div class="view-header"><div><span class="eyebrow">Seleção especial</span><h2>Favoritas</h2></div></div>
+      <div id="favorites-grid" class="collection-grid"></div>
+    </section>
+
+    <section id="view-timeline" class="dash-view">
+      <div class="view-header"><div><span class="eyebrow">Histórico vivo</span><h2>Timeline</h2></div></div>
+      <div id="timeline-dashboard" class="timeline-dashboard"></div>
+    </section>
+
+    <section id="view-stores" class="dash-view">
+      <div class="view-header">
+        <div>
+          <span class="eyebrow">Lojas salvas</span>
+          <h2>Lojas</h2>
+        </div>
+        <form id="store-form-dashboard" class="store-form">
+          <input id="store-name-dashboard" type="text" placeholder="Nome da loja" maxlength="48" />
+          <input id="store-url-dashboard" type="text" placeholder="https://loja.com.br" />
+          <button class="solid-btn" type="submit">Adicionar loja</button>
+        </form>
+      </div>
+      <div id="stores-dashboard" class="stores-dashboard"></div>
+      <div id="store-pieces-dashboard" class="store-pieces-dashboard"></div>
+    </section>
+
+    <section id="view-analysis" class="dash-view">
+      <div class="view-header"><div><span class="eyebrow">Leitura da coleção</span><h2>Análise</h2></div></div>
+      <div id="analysis-dashboard" class="analysis-dashboard"></div>
+    </section>
+  </main>
+
+  <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <div id="account-dialog" class="account-dialog" aria-hidden="true">
+    <div class="account-backdrop" data-account-action="close"></div>
+    <section class="account-panel" role="dialog" aria-modal="true" aria-labelledby="account-title">
+      <div class="account-copy">
+        <span class="eyebrow">Conta StashWear</span>
+        <h2 id="account-title">Sincronizar colecao</h2>
+        <p id="account-status">Entre para salvar seus dados na nuvem.</p>
+      </div>
+      <form id="account-form" class="account-form" novalidate>
+        <input id="account-name" type="text" autocomplete="nickname" placeholder="Nome de usuario" maxlength="32" hidden />
+        <input id="account-email" type="email" autocomplete="email" placeholder="email@exemplo.com" required />
+        <input id="account-password" type="password" autocomplete="current-password" placeholder="Senha" required />
+        <div class="account-actions">
+          <button id="btn-account-login" class="solid-btn" type="submit">Entrar</button>
+          <button class="ghost-btn" type="button" data-account-action="close">Fechar</button>
+        </div>
+        <p id="account-mode-copy" class="account-mode-copy">
+          <span id="account-mode-question">Ainda nao tem conta?</span>
+          <button id="btn-account-mode-signup" type="button">Criar cadastro</button>
+        </p>
+      </form>
+      <section id="account-profile" class="account-profile" hidden>
+        <div class="profile-card">
+          <div id="profile-avatar" class="profile-avatar">S</div>
+          <div class="profile-copy">
+            <strong id="profile-name">Usuario</strong>
+            <span id="profile-email">email@exemplo.com</span>
+          </div>
+        </div>
+        <label class="profile-field">
+          <span>Nome de usuario</span>
+          <input id="profile-name-input" type="text" maxlength="32" />
+        </label>
+        <div class="account-actions">
+          <button id="btn-profile-save" class="solid-btn" type="button">Salvar nome</button>
+          <button id="btn-account-logout" class="danger-btn" type="button">Sair da conta</button>
+          <button class="ghost-btn" type="button" data-account-action="close">Fechar</button>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <div id="confirm-dialog" class="confirm-dialog" aria-hidden="true">
+    <div class="confirm-backdrop" data-confirm-action="cancel"></div>
+    <section class="confirm-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="confirm-icon">!</div>
+      <div class="confirm-copy">
+        <span class="eyebrow">Confirmar acao</span>
+        <h2 id="confirm-title">Remover peca?</h2>
+        <p id="confirm-message">Essa acao nao pode ser desfeita.</p>
+      </div>
+      <div class="confirm-actions">
+        <button class="ghost-btn" data-confirm-action="cancel">Cancelar</button>
+        <button class="danger-btn" data-confirm-action="confirm">Remover</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="popup-tip-dialog" class="tip-dialog" aria-hidden="true">
+    <div class="tip-backdrop" data-tip-action="close"></div>
+    <section class="tip-panel" role="dialog" aria-modal="true" aria-labelledby="tip-title" aria-describedby="tip-message">
+      <div class="tip-icon">+</div>
+      <div class="tip-copy">
+        <span class="eyebrow">Salvar nova peça</span>
+        <h2 id="tip-title">Use o popup do StashWear</h2>
+        <p id="tip-message">Abra uma loja, clique no ícone do StashWear no navegador e use "Salvar peça atual".</p>
+      </div>
+      <div class="tip-actions">
+        <button class="solid-btn" data-tip-action="close">Entendi</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="supabase-config.js"></script>
+  <script src="supabase-sync.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

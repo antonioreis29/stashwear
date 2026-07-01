@@ -1,0 +1,1284 @@
+const get = key => new Promise(resolve => chrome.storage.local.get(key, data => resolve(data[key] || [])));
+const save = (key, value) => new Promise(resolve => chrome.storage.local.set({ [key]: value }, resolve));
+const getItems = () => get('items');
+const setItems = value => save('items', value);
+const getActivities = () => get('activities');
+const setActivities = value => save('activities', value);
+const getFolders = () => get('folders');
+const setFolders = value => save('folders', value);
+const getStores = () => get('stores');
+const setStores = value => save('stores', value);
+const getNotifications = () => get('notifications');
+const setNotifications = value => save('notifications', value);
+const SYNC_STATUS_KEY = 'stashwearSyncStatus';
+const getStorageObject = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
+
+let state = {
+  items: [],
+  activities: [],
+  folders: [],
+  stores: [],
+  notifications: [],
+  view: 'collection',
+  search: '',
+  sort: 'date',
+  priorityFilter: 'todos',
+  typeFilter: 'todos',
+  storeFilter: 'todos',
+  globalSearch: '',
+  selectedStoreDomain: null,
+  selectedFolderId: null,
+  folderPickerOpen: false,
+  editingFolderId: null,
+  editingStoreIndex: null
+};
+let accountMode = 'login';
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
+}
+function foldText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+function parsePrice(str) {
+  if (!str) return null;
+  let raw = String(str).replace(/[^\d,.]/g, '');
+  if (!raw) return null;
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  if (lastComma > lastDot) raw = raw.replace(/\./g, '').replace(',', '.');
+  else raw = raw.replace(/,/g, '');
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+function formatPrice(n) {
+  return 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function getTags(item) {
+  if (Array.isArray(item.tags)) return item.tags.filter(Boolean);
+  return String(item.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+}
+function itemKey(item) {
+  return String(item?.savedAt || item?.url || item?.id || item?.name || '');
+}
+function createFolderId() {
+  return `folder-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+function normalizeUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+function extractDomain(url) {
+  try { return new URL(normalizeUrl(url)).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
+function domainToName(domain) {
+  if (!domain) return '';
+  const part = domain.split('.').find(p => !['www','shop','loja','store'].includes(p)) || domain.split('.')[0];
+  return part.charAt(0).toUpperCase() + part.slice(1);
+}
+function getStoreName(store) {
+  const domain = extractDomain(store?.url);
+  return store?.name || domainToName(domain) || 'Loja salva';
+}
+function itemMatchesStore(item, store) {
+  const name = getStoreName(store);
+  const domain = extractDomain(store?.url);
+  return String(item.store || '').toLowerCase() === String(name).toLowerCase() || (domain && extractDomain(item.url) === domain);
+}
+function getStoreItems(store) {
+  return state.items.filter(item => itemMatchesStore(item, store));
+}
+function normalizeFolder(folder) {
+  return {
+    id: folder.id || createFolderId(),
+    name: String(folder.name || 'Nova pasta').trim() || 'Nova pasta',
+    itemKeys: Array.isArray(folder.itemKeys) ? folder.itemKeys.filter(Boolean) : [],
+    createdAt: folder.createdAt || Date.now()
+  };
+}
+function ensureSelectedFolder() {
+  state.folders = state.folders.map(normalizeFolder);
+  if (!state.folders.length) {
+    state.selectedFolderId = null;
+    return null;
+  }
+  const selected = state.folders.find(folder => folder.id === state.selectedFolderId) || state.folders[0];
+  state.selectedFolderId = selected.id;
+  return selected;
+}
+function getFolderItems(folder) {
+  if (!folder) return [];
+  const keys = new Set(folder.itemKeys);
+  return state.items.filter(item => keys.has(itemKey(item)));
+}
+function getNameSizeClass(name) {
+  const length = String(name || '').replace(/\s+/g, ' ').trim().length;
+  if (length <= 38) return 'name-short';
+  if (length <= 70) return 'name-medium';
+  if (length <= 105) return 'name-long';
+  return 'name-xlong';
+}
+
+function normalizeTypeLabel(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Outro';
+  if (/^sem\s+(tipo|categoria|informacao|informação)$/i.test(raw)) return 'Outro';
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+function getItemType(item) {
+  const direct = item.type || item.tipo || item.category || item.categoria || item.productType || item.product_type;
+  if (direct) return normalizeTypeLabel(direct);
+  const tags = getTags(item);
+  const known = ['camisa','camiseta','calça','calca','bermuda','short','jaqueta','casaco','blazer','vestido','saia','tênis','tenis','sapato','sandália','sandalia','bolsa','acessório','acessorio','óculos','oculos','relógio','relogio'];
+  const found = tags.find(t => known.includes(String(t).toLowerCase()));
+  return found ? normalizeTypeLabel(found) : 'Outro';
+}
+function priceHistory(item) { return Array.isArray(item.priceHistory) ? item.priceHistory : []; }
+function getPriorityLevel(item) {
+  if (item.curationPriority) return item.curationPriority;
+  if (item.buyThisMonth === true) return 'alta';
+  if (item.buyThisMonth === false) return 'inspiracional';
+  return 'avaliando';
+}
+function priorityLabel(item) {
+  const level = getPriorityLevel(item);
+  if (level === 'alta') return '⭐ Prioridade Alta';
+  if (level === 'inspiracional') return '○ Inspiracional';
+  return '● Avaliando';
+}
+function activityIcon(type) {
+  return ({ salvo: '+', atualizada: '↻', queda_preco: '↓', preco_atualizado: '↕', favorita: '♥', prioridade: '★', status: '✓', removida: '×', loja: '⌂' })[type] || '•';
+}
+function activityTitle(type) {
+  return ({ salvo: 'Peça salva na coleção', atualizada: 'Peça atualizada', queda_preco: 'Preço caiu', preco_atualizado: 'Preço atualizado', favorita: 'Favorito alterado', prioridade: 'Prioridade alterada', status: 'Status alterado', removida: 'Peça removida', loja: 'Loja adicionada' })[type] || 'Atividade registrada';
+}
+function activityDateLabel(ts) {
+  const date = new Date(Number(ts) || Date.now());
+  const today = new Date();
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const startThat = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startToday - startThat) / 86400000);
+  if (diffDays === 0) return 'Hoje';
+  if (diffDays === 1) return 'Ontem';
+  if (diffDays < 7) return `${diffDays} dias atrás`;
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+async function logActivity(entry) {
+  const activities = await getActivities();
+  activities.unshift({ at: Date.now(), ...entry });
+  await setActivities(activities.slice(0, 120));
+  state.activities = activities.slice(0, 120);
+}
+function showConfirmDialog({ title, message, confirmLabel = 'Remover' }) {
+  const dialog = document.getElementById('confirm-dialog');
+  if (!dialog) return Promise.resolve(false);
+  const titleEl = document.getElementById('confirm-title');
+  const messageEl = document.getElementById('confirm-message');
+  const confirmBtn = dialog.querySelector('[data-confirm-action="confirm"]');
+  const cancelEls = dialog.querySelectorAll('[data-confirm-action="cancel"]');
+  const previousFocus = document.activeElement;
+
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  confirmBtn.textContent = confirmLabel;
+  dialog.classList.add('active');
+  dialog.setAttribute('aria-hidden', 'false');
+  confirmBtn.focus();
+
+  return new Promise(resolve => {
+    const close = result => {
+      dialog.classList.remove('active');
+      dialog.setAttribute('aria-hidden', 'true');
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelEls.forEach(el => el.removeEventListener('click', onCancel));
+      document.removeEventListener('keydown', onKeydown);
+      previousFocus?.focus?.();
+      resolve(result);
+    };
+    const onConfirm = () => close(true);
+    const onCancel = () => close(false);
+    const onKeydown = event => {
+      if (event.key === 'Escape') close(false);
+      if (event.key === 'Enter') close(true);
+    };
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelEls.forEach(el => el.addEventListener('click', onCancel));
+    document.addEventListener('keydown', onKeydown);
+  });
+}
+function showToast(message, type = 'info') {
+  const stack = document.getElementById('toast-stack');
+  if (!stack) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<strong>${escapeHtml(message)}</strong>`;
+  stack.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 220);
+  }, 2600);
+}
+function syncStatusLabel(status, isLoggedIn) {
+  if (!isLoggedIn) return 'Offline';
+  if (status?.state === 'syncing') return 'Salvando...';
+  if (status?.state === 'synced') return 'Sincronizado';
+  if (status?.state === 'error') return 'Falha ao sincronizar';
+  return 'Sincronizacao ativa';
+}
+async function setSyncStatus(stateName, detail = '') {
+  await save(SYNC_STATUS_KEY, { state: stateName, detail, at: Date.now() });
+}
+async function refreshSyncStatus() {
+  const el = document.getElementById('sync-status');
+  const label = document.getElementById('sync-status-label');
+  if (!el || !label) return;
+  const [session, storage] = await Promise.all([
+    window.StashWearSync?.getSession?.(),
+    getStorageObject(SYNC_STATUS_KEY)
+  ]);
+  const isLoggedIn = Boolean(session?.user?.id);
+  const status = storage[SYNC_STATUS_KEY] || null;
+  const stateName = isLoggedIn ? (status?.state || 'synced') : 'offline';
+  el.className = `sync-status ${stateName}`;
+  label.textContent = syncStatusLabel(status, isLoggedIn);
+  el.title = status?.detail || label.textContent;
+}
+function authErrorMessage(error) {
+  const raw = String(error?.message || error || '').toLowerCase();
+  if (!raw) return 'Nao foi possivel autenticar. Tente novamente.';
+  if (raw.includes('invalid login credentials')) return 'E-mail ou senha incorretos. Confira os dados e tente novamente.';
+  if (raw.includes('email not confirmed') || raw.includes('email_not_confirmed')) return 'Confirme seu e-mail antes de entrar.';
+  if (raw.includes('user already registered') || raw.includes('already registered') || raw.includes('already been registered')) return 'Este e-mail ja esta cadastrado. Use Entrar em vez de Criar conta.';
+  if (raw.includes('password should be at least') || (raw.includes('password') && raw.includes('characters'))) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (raw.includes('weak password') || raw.includes('password is too weak')) return 'A senha esta fraca. Use letras, numeros e pelo menos 6 caracteres.';
+  if (raw.includes('invalid email') || raw.includes('email address') || raw.includes('invalid format')) return 'Digite um e-mail valido, como nome@exemplo.com.';
+  if (raw.includes('signup') && raw.includes('disabled')) return 'Cadastro desativado no Supabase. Ative novos usuarios em Authentication.';
+  if (raw.includes('rate limit') || raw.includes('too many') || raw.includes('security purposes')) return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+  if (raw.includes('network') || raw.includes('failed to fetch') || raw.includes('fetch')) return 'Falha de conexao com o Supabase. Verifique a internet e tente novamente.';
+  if (raw.includes('jwt') || raw.includes('token') || raw.includes('expired')) return 'Sua sessao expirou. Entre novamente.';
+  if (raw.includes('database') || raw.includes('row-level security') || raw.includes('permission denied')) return 'Sem permissao para sincronizar. Confira se o SQL do Supabase foi atualizado.';
+  if (raw.includes('entre na sua conta')) return 'Entre na sua conta ou realize cadastro para sincronizar.';
+  return 'Nao foi possivel autenticar. Confira os dados e tente novamente.';
+}
+function normalizeDisplayName(name, email = '') {
+  const value = String(name || '').trim();
+  if (value) return value;
+  return String(email || '').split('@')[0] || 'Usuario';
+}
+function validateDisplayName(name) {
+  const value = String(name || '').trim();
+  if (!value) return 'Escolha um nome de usuario.';
+  if (value.length < 2) return 'O nome de usuario precisa ter pelo menos 2 caracteres.';
+  if (value.length > 32) return 'Use um nome de usuario com ate 32 caracteres.';
+  if (!/^[\p{L}\p{N} _.-]+$/u.test(value)) return 'Use apenas letras, numeros, espaco, ponto, hifen ou underline no nome.';
+  return '';
+}
+function validateAccountFields(mode, email, password, displayName = '') {
+  if (mode === 'signup') {
+    const nameMessage = validateDisplayName(displayName);
+    if (nameMessage) return nameMessage;
+  }
+  if (!email && !password) return 'Preencha o e-mail e a senha.';
+  if (!email) return 'Preencha o e-mail.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return 'Digite um e-mail valido, como nome@exemplo.com.';
+  if (!password) return 'Preencha a senha.';
+  if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (mode === 'signup' && password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
+  if (mode === 'signup' && password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+  return '';
+}
+async function refreshAccountUi() {
+  const session = await window.StashWearSync?.getSession?.();
+  const accountBtn = document.getElementById('btn-account');
+  const status = document.getElementById('account-status');
+  const accountTitle = document.getElementById('account-title');
+  const accountForm = document.getElementById('account-form');
+  const accountProfile = document.getElementById('account-profile');
+  const nameInput = document.getElementById('account-name');
+  const email = document.getElementById('account-email');
+  const password = document.getElementById('account-password');
+  const loginBtn = document.getElementById('btn-account-login');
+  const modeCopy = document.getElementById('account-mode-copy');
+  const modeQuestion = document.getElementById('account-mode-question');
+  const modeButton = document.getElementById('btn-account-mode-signup');
+  const isLoggedIn = Boolean(session?.user?.email);
+  const displayName = normalizeDisplayName(session?.user?.displayName, session?.user?.email);
+
+  if (accountBtn) accountBtn.textContent = isLoggedIn ? displayName : 'Entrar';
+  if (accountTitle) accountTitle.textContent = isLoggedIn ? 'Sua conta' : (accountMode === 'signup' ? 'Criar cadastro' : 'Entrar no StashWear');
+  if (status) status.textContent = isLoggedIn
+    ? 'Sua colecao esta vinculada a esta conta.'
+    : (accountMode === 'signup' ? 'Crie sua conta para sincronizar sua colecao.' : 'Entre para carregar e sincronizar sua colecao.');
+  if (accountForm) accountForm.hidden = isLoggedIn;
+  if (accountProfile) accountProfile.hidden = !isLoggedIn;
+  if (nameInput && !isLoggedIn) {
+    nameInput.hidden = accountMode !== 'signup';
+    nameInput.disabled = accountMode !== 'signup';
+  }
+  if (email) {
+    if (!isLoggedIn) email.disabled = false;
+  }
+  if (password) {
+    password.value = '';
+    if (!isLoggedIn) password.disabled = false;
+  }
+  if (loginBtn) loginBtn.hidden = isLoggedIn;
+  if (loginBtn && !isLoggedIn) loginBtn.textContent = accountMode === 'signup' ? 'Criar conta' : 'Entrar';
+  if (modeCopy) modeCopy.hidden = isLoggedIn;
+  if (modeButton && !isLoggedIn) {
+    if (modeQuestion) modeQuestion.textContent = accountMode === 'signup' ? 'Ja tem conta?' : 'Ainda nao tem conta?';
+    modeButton.textContent = accountMode === 'signup' ? 'Entrar' : 'Criar cadastro';
+  }
+
+  const profileName = document.getElementById('profile-name');
+  const profileEmail = document.getElementById('profile-email');
+  const profileAvatar = document.getElementById('profile-avatar');
+  const profileNameInput = document.getElementById('profile-name-input');
+  if (isLoggedIn) {
+    if (profileName) profileName.textContent = displayName;
+    if (profileEmail) profileEmail.textContent = session.user.email;
+    if (profileAvatar) profileAvatar.textContent = displayName.charAt(0).toUpperCase();
+    if (profileNameInput) profileNameInput.value = displayName;
+  }
+  await refreshSyncStatus();
+}
+function openAccountDialog() {
+  const dialog = document.getElementById('account-dialog');
+  if (!dialog) return;
+  dialog.classList.add('active');
+  dialog.setAttribute('aria-hidden', 'false');
+  refreshAccountUi().then(async () => {
+    const session = await window.StashWearSync?.getSession?.();
+    if (!session?.user?.email) accountMode = 'login';
+    await refreshAccountUi();
+    setTimeout(() => {
+      (session?.user?.email ? document.getElementById('profile-name-input') : document.getElementById('account-email'))?.focus?.();
+    }, 0);
+  });
+}
+function setAccountMode(mode) {
+  accountMode = mode === 'signup' ? 'signup' : 'login';
+  refreshAccountUi();
+  setTimeout(() => {
+    (accountMode === 'signup' ? document.getElementById('account-name') : document.getElementById('account-email'))?.focus?.();
+  }, 0);
+}
+function closeAccountDialog() {
+  const dialog = document.getElementById('account-dialog');
+  if (!dialog) return;
+  dialog.classList.remove('active');
+  dialog.setAttribute('aria-hidden', 'true');
+}
+async function handleAccountAuth(mode) {
+  mode = accountMode;
+  const displayName = document.getElementById('account-name')?.value.trim();
+  const email = document.getElementById('account-email')?.value.trim();
+  const password = document.getElementById('account-password')?.value;
+  const validationMessage = validateAccountFields(mode, email, password, displayName);
+  if (validationMessage) {
+    showToast(validationMessage, 'danger');
+    return;
+  }
+  try {
+    const localBeforeLogin = await window.StashWearSync.collectLocalData();
+    const localItemsCount = Array.isArray(localBeforeLogin.items) ? localBeforeLogin.items.length : 0;
+    const result = mode === 'signup'
+      ? await window.StashWearSync.signUp(email, password, displayName)
+      : await window.StashWearSync.signIn(email, password);
+    if (result?.pendingConfirmation) {
+      showToast('Conta criada. Confirme seu e-mail antes de entrar.');
+    } else {
+      let saveLocal = false;
+      if (localItemsCount > 0) {
+        saveLocal = await showConfirmDialog({
+          title: 'Salvar pecas deste navegador?',
+          message: `Encontramos ${localItemsCount} peca(s) salvas antes do login. Quer salvar esses dados na sua conta StashWear?`,
+          confirmLabel: 'Salvar na conta'
+        });
+      }
+      await setSyncStatus('syncing', 'Carregando colecao da conta');
+      await window.StashWearSync.syncAfterLogin({ saveLocal });
+      await setSyncStatus('synced', 'Sincronizado');
+      await loadData();
+      showToast(saveLocal ? 'Colecao local salva na sua conta' : 'Colecao da conta carregada');
+      closeAccountDialog();
+    }
+    await refreshAccountUi();
+  } catch (error) {
+    await setSyncStatus('error', 'Falha ao sincronizar');
+    showToast(authErrorMessage(error), 'danger');
+  }
+}
+function notificationDateLabel(ts) {
+  const date = new Date(Number(ts) || Date.now());
+  return date.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+function renderNotifications() {
+  const bell = document.getElementById('notification-bell');
+  const dot = document.getElementById('notification-dot');
+  const panel = document.getElementById('notification-panel');
+  if (!bell || !dot || !panel) return;
+  const notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  const unread = notifications.filter(n => !n.read).length;
+  dot.hidden = unread === 0;
+  bell.classList.toggle('has-unread', unread > 0);
+
+  if (!notifications.length) {
+    panel.innerHTML = `<div class="notification-empty"><strong>Nenhuma queda de preço ainda.</strong><small>O StashWear vai avisar quando uma peça salva baixar.</small></div>`;
+    return;
+  }
+
+  panel.innerHTML = `<div class="notification-head">
+    <div><span class="eyebrow">Notificações</span><strong>Quedas de preço</strong></div>
+    <button class="ghost-btn" data-notification-action="clear">Limpar</button>
+  </div>
+  <div class="notification-list">
+    ${notifications.slice(0, 12).map(n => `<a class="notification-item ${n.read ? '' : 'unread'}" href="${escapeHtml(n.url || '#')}" target="_blank" data-notification-id="${escapeHtml(n.id)}">
+      <span class="notification-thumb">${n.imageUrl ? `<img src="${escapeHtml(n.imageUrl)}" alt="">` : '<span></span>'}</span>
+      <span class="notification-copy">
+        <strong>${escapeHtml(n.itemName || 'Peça salva')}</strong>
+        <small>Caiu de ${escapeHtml(n.previousPrice || '-')} para ${escapeHtml(n.currentPrice || '-')}</small>
+        <em>${notificationDateLabel(n.createdAt)}</em>
+      </span>
+    </a>`).join('')}
+  </div>`;
+
+  panel.querySelector('[data-notification-action="clear"]')?.addEventListener('click', async event => {
+    event.preventDefault();
+    state.notifications = [];
+    await setNotifications([]);
+    renderNotifications();
+  });
+  panel.querySelectorAll('[data-notification-id]').forEach(link => link.addEventListener('click', async () => {
+    const id = link.dataset.notificationId;
+    state.notifications = state.notifications.map(n => n.id === id ? { ...n, read:true } : n);
+    await setNotifications(state.notifications);
+    renderNotifications();
+  }));
+}
+async function toggleNotificationPanel() {
+  const bell = document.getElementById('notification-bell');
+  const panel = document.getElementById('notification-panel');
+  if (!bell || !panel) return;
+  const willOpen = panel.hidden;
+  panel.hidden = !willOpen;
+  bell.setAttribute('aria-expanded', String(willOpen));
+  if (willOpen) {
+    state.notifications = state.notifications.map(n => ({ ...n, read:true }));
+    await setNotifications(state.notifications);
+    renderNotifications();
+  }
+}
+function showPopupTipDialog() {
+  const dialog = document.getElementById('popup-tip-dialog');
+  if (!dialog) return;
+  const closeEls = dialog.querySelectorAll('[data-tip-action="close"]');
+  const previousFocus = document.activeElement;
+
+  const close = () => {
+    dialog.classList.remove('active');
+    dialog.setAttribute('aria-hidden', 'true');
+    closeEls.forEach(el => el.removeEventListener('click', close));
+    document.removeEventListener('keydown', onKeydown);
+    previousFocus?.focus?.();
+  };
+  const onKeydown = event => {
+    if (event.key === 'Escape' || event.key === 'Enter') close();
+  };
+
+  dialog.classList.add('active');
+  dialog.setAttribute('aria-hidden', 'false');
+  closeEls.forEach(el => el.addEventListener('click', close));
+  document.addEventListener('keydown', onKeydown);
+  dialog.querySelector('.solid-btn')?.focus?.();
+}
+function activateView(view) {
+  document.querySelectorAll('.dash-tab').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.dash-view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + view)?.classList.add('active');
+  state.view = view;
+}
+function isRecent(item) {
+  const date = Number(item.savedAt || item.updatedAt || 0);
+  return date && Date.now() - date < 7 * 24 * 60 * 60 * 1000;
+}
+function getLowestPrice(item) {
+  const values = priceHistory(item).map(h => parsePrice(h.price)).filter(v => v !== null);
+  const current = parsePrice(item.price);
+  if (current !== null) values.push(current);
+  return values.length ? Math.min(...values) : null;
+}
+function hasPriceDrop(item) {
+  const current = parsePrice(item.price);
+  const history = priceHistory(item).map(h => parsePrice(h.price)).filter(v => v !== null);
+  if (current === null || !history.length) return false;
+  return history.some(value => value > current);
+}
+function getCurationScore(item, allItems = state.items) {
+  const price = parsePrice(item.price) || 0;
+  const maxPrice = Math.max(1, ...allItems.map(i => parsePrice(i.price) || 0));
+  let score = 0;
+  if (item.favorite) score += 50;
+  if (getPriorityLevel(item) === 'alta') score += 40;
+  if (getPriorityLevel(item) === 'avaliando') score += 16;
+  if (hasPriceDrop(item)) score += 15;
+  if (isRecent(item)) score += 10;
+  score += Math.round((price / maxPrice) * 20);
+  return score;
+}
+function pickCurrentCuration(items) {
+  return [...items].sort((a, b) => {
+    const diff = getCurationScore(b, items) - getCurationScore(a, items);
+    if (diff !== 0) return diff;
+    return Number(b.savedAt || 0) - Number(a.savedAt || 0);
+  })[0] || null;
+}
+function sortItems(items) {
+  const list = [...items];
+  if (state.sort === 'curation') return list.sort((a,b) => getCurationScore(b) - getCurationScore(a));
+  if (state.sort === 'priceDesc') return list.sort((a,b) => (parsePrice(b.price) || 0) - (parsePrice(a.price) || 0));
+  if (state.sort === 'priceAsc') return list.sort((a,b) => (parsePrice(a.price) || 999999999) - (parsePrice(b.price) || 999999999));
+  if (state.sort === 'store') return list.sort((a,b) => String(a.store || '').localeCompare(String(b.store || ''), 'pt-BR'));
+  return list.sort((a,b) => Number(b.savedAt || b.updatedAt || 0) - Number(a.savedAt || a.updatedAt || 0));
+}
+function applySearch(items) {
+  const q = foldText(state.search).trim();
+  if (!q) return items;
+  return items.filter(item => foldText([item.name, item.store, item.category, item.note, item.price, item.url, getItemType(item), priorityLabel(item), ...getTags(item)].join(' ')).includes(q));
+}
+function applyStoreFilter(items) {
+  if (state.storeFilter === 'todos') return items;
+  return items.filter(item => {
+    const domain = extractDomain(item.url);
+    return String(item.store || '').toLowerCase() === state.storeFilter || domain === state.storeFilter;
+  });
+}
+function renderGlobalSearch() {
+  const panel = document.getElementById('global-search-panel');
+  if (!panel) return;
+  const q = foldText(state.globalSearch).trim();
+  if (!q) {
+    panel.classList.remove('active');
+    panel.innerHTML = '';
+    return;
+  }
+  const pieces = state.items.filter(item => foldText([item.name, item.store, item.category, item.note, item.price, item.url, getItemType(item), ...getTags(item)].join(' ')).includes(q)).slice(0, 6);
+  const stores = state.stores.map((store, index) => ({ store, index })).filter(({ store }) => foldText([getStoreName(store), store.url, extractDomain(store.url)].join(' ')).includes(q)).slice(0, 6);
+  const folders = state.folders.filter(folder => foldText(folder.name).includes(q)).slice(0, 6);
+  const total = pieces.length + stores.length + folders.length;
+  panel.classList.add('active');
+  if (!total) {
+    panel.innerHTML = `<div class="global-empty">Nenhum resultado para "${escapeHtml(state.globalSearch)}".</div>`;
+    return;
+  }
+  panel.innerHTML = `<div class="global-results">
+    ${pieces.map(item => `<button class="global-result" data-global-type="piece" data-key="${escapeHtml(itemKey(item))}"><span>Peça</span><strong>${escapeHtml(item.name || 'Peça sem nome')}</strong><small>${escapeHtml(item.store || item.price || 'Coleção')}</small></button>`).join('')}
+    ${stores.map(({ store, index }) => `<button class="global-result" data-global-type="store" data-index="${index}"><span>Loja</span><strong>${escapeHtml(getStoreName(store))}</strong><small>${escapeHtml(extractDomain(store.url) || store.url || 'Loja salva')}</small></button>`).join('')}
+    ${folders.map(folder => `<button class="global-result" data-global-type="folder" data-folder-id="${escapeHtml(folder.id)}"><span>Pasta</span><strong>${escapeHtml(folder.name)}</strong><small>${getFolderItems(folder).length} peça(s)</small></button>`).join('')}
+  </div>`;
+  panel.querySelectorAll('.global-result').forEach(btn => btn.addEventListener('click', () => {
+    if (btn.dataset.globalType === 'piece') {
+      state.search = state.globalSearch;
+      state.typeFilter = 'todos';
+      state.storeFilter = 'todos';
+      document.getElementById('search-input').value = state.search;
+      activateView('collection');
+      renderCollection();
+    } else if (btn.dataset.globalType === 'store') {
+      state.selectedStoreDomain = extractDomain(state.stores[Number(btn.dataset.index)]?.url);
+      activateView('stores');
+      renderStores();
+    } else if (btn.dataset.globalType === 'folder') {
+      state.selectedFolderId = btn.dataset.folderId;
+      state.folderPickerOpen = false;
+      activateView('folders');
+      renderFolders();
+    }
+    state.globalSearch = '';
+    const globalSearchInput = document.getElementById('global-search-input');
+    if (globalSearchInput) globalSearchInput.value = '';
+    renderGlobalSearch();
+  }));
+}
+function topEntries(items, key, limit = 6) {
+  const map = {};
+  items.forEach(item => { const value = (item[key] || 'Sem informação').trim?.() || 'Sem informação'; map[value] = (map[value] || 0) + 1; });
+  return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, limit);
+}
+function topTags(items, limit = 10) {
+  const map = {};
+  items.forEach(i => getTags(i).forEach(t => map[t] = (map[t] || 0) + 1));
+  return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, limit);
+}
+
+function renderStats() {
+  renderDecisions();
+}
+function getUnorganizedItems() {
+  const folderKeys = new Set(state.folders.flatMap(folder => folder.itemKeys || []));
+  return state.items.filter(item => {
+    const noType = getItemType(item) === 'Outro';
+    const noStore = !String(item.store || '').trim();
+    const noFolder = !folderKeys.has(itemKey(item));
+    return noType || noStore || noFolder;
+  });
+}
+function decisionPreview(items) {
+  const previewItems = items.slice(0, 3);
+  if (!previewItems.length) return '<small>Tudo certo por aqui.</small>';
+  return `<div class="decision-preview">${previewItems.map(item => `
+    <span class="decision-thumb" title="${escapeHtml(item.name || 'Peça sem nome')}">
+      ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name || 'Peça')}">` : '<span>◇</span>'}
+    </span>
+  `).join('')}</div>`;
+}
+function renderDecisionCard({ key, label, value, desc, items, actionLabel }) {
+  return `<button class="decision-card" data-decision="${key}">
+    <span>${label}</span>
+    <strong>${value}</strong>
+    <small>${desc}</small>
+    ${decisionPreview(items)}
+    <em>${actionLabel}</em>
+  </button>`;
+}
+function renderDecisions() {
+  const el = document.getElementById('decisions-grid');
+  if (!el) return;
+  const openItems = state.items;
+  const buyNow = openItems.filter(item => getPriorityLevel(item) === 'alta' || hasPriceDrop(item));
+  const reviewing = openItems.filter(item => getPriorityLevel(item) === 'avaliando');
+  const priceRadar = openItems.filter(hasPriceDrop);
+  const organize = getUnorganizedItems();
+  const cards = [
+    { key:'buy', label:'Comprar agora', value:buyNow.length, desc:'Prioridade alta ou preço em queda', items:buyNow, actionLabel:'Ver prioridades' },
+    { key:'review', label:'Revisar', value:reviewing.length, desc:'Peças ainda em avaliação', items:reviewing, actionLabel:'Abrir avaliando' },
+    { key:'organize', label:'Organizar', value:organize.length, desc:'Sem tipo, loja ou pasta', items:organize, actionLabel:'Limpar coleção' },
+    { key:'price', label:'Radar de preço', value:priceRadar.length, desc:'Quedas e metas de preço', items:priceRadar, actionLabel:'Ver oportunidades' }
+  ];
+  el.innerHTML = cards.map(renderDecisionCard).join('');
+  el.querySelectorAll('[data-decision]').forEach(btn => btn.addEventListener('click', () => {
+    const decision = btn.dataset.decision;
+    state.search = '';
+    state.typeFilter = 'todos';
+    state.storeFilter = 'todos';
+    document.getElementById('search-input').value = '';
+    if (decision === 'buy') {
+      state.priorityFilter = 'alta';
+      activateView('priorities');
+      renderPriorities();
+      return;
+    }
+    if (decision === 'review') {
+      state.priorityFilter = 'avaliando';
+      activateView('priorities');
+      renderPriorities();
+      return;
+    }
+    state.sort = decision === 'price' ? 'curation' : 'date';
+    document.getElementById('sort-select-dashboard').value = state.sort;
+    activateView('collection');
+    renderCollection();
+  }));
+}
+function renderCuration() {
+  const featured = pickCurrentCuration(state.items);
+  const el = document.getElementById('curation-card');
+  if (!featured) {
+    el.innerHTML = `<div class="curation-empty"><span class="eyebrow">Curadoria Atual</span><h2>Sua coleção ainda está vazia</h2><p class="curation-note">Salve uma peça pelo popup para começar.</p></div>`;
+    return;
+  }
+  const score = getCurationScore(featured);
+  const lowest = getLowestPrice(featured);
+  const price = parsePrice(featured.price);
+  const drop = lowest !== null && price !== null && price <= lowest && priceHistory(featured).length > 1;
+  el.innerHTML = `<div class="curation-inner">
+    <div class="curation-image">${featured.imageUrl ? `<img src="${escapeHtml(featured.imageUrl)}" alt="${escapeHtml(featured.name)}">` : '<div class="thumb-placeholder">◇</div>'}</div>
+    <div class="curation-copy">
+      <div>
+        <span class="eyebrow">Curadoria Atual</span>
+        <h2>${escapeHtml(featured.name)}</h2>
+        <div class="curation-meta">
+          ${featured.favorite ? '<span class="pill light">♥ Favorita</span>' : ''}
+          <span class="pill">${priorityLabel(featured)}</span>
+          ${featured.price ? `<span class="pill">${escapeHtml(featured.price)}</span>` : ''}
+          ${featured.store ? `<span class="pill">${escapeHtml(featured.store)}</span>` : ''}
+          ${drop ? '<span class="pill light">↓ Menor preço</span>' : ''}
+          <span class="pill">Pontuação ${score}</span>
+        </div>
+        ${featured.note ? `<p class="curation-note">${escapeHtml(featured.note)}</p>` : ''}
+      </div>
+      ${featured.url ? `<a class="open-link" href="${escapeHtml(featured.url)}" target="_blank">Abrir peça ↗</a>` : ''}
+    </div>
+  </div>`;
+}
+function itemCardHtml(item, index, options = {}) {
+  const price = parsePrice(item.price);
+  const lowest = getLowestPrice(item);
+  const dropped = hasPriceDrop(item);
+  const nameClass = getNameSizeClass(item.name);
+  return `<article class="item-card ${nameClass}" data-index="${index}">
+    <div class="item-thumb">
+      ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : '<div class="thumb-placeholder">◇</div>'}
+      <button class="fav-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Favoritar">♥</button>
+    </div>
+    <div class="item-body">
+      <div class="item-title-row"><div class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div></div>
+      <div class="item-meta"><span class="item-store">${escapeHtml(item.store || item.category || 'Sem loja')}</span><span class="item-price">${escapeHtml(item.price || 'Sem preço')}</span></div>
+      <div class="card-surface-row">
+        <span class="piece-type">${escapeHtml(getItemType(item))}</span>
+        ${dropped && lowest !== null && price !== null ? `<span class="price-drop-pill">Preço caiu</span>` : ''}
+      </div>
+      <div class="priority-toggle" aria-label="Prioridade da peça">
+        <button class="${getPriorityLevel(item)==='alta'?'active':''}" data-action="priority" data-value="alta" title="Prioridade Alta"><span>Alta</span></button>
+        <button class="${getPriorityLevel(item)==='avaliando'?'active':''}" data-action="priority" data-value="avaliando" title="Avaliando"><span>Aval.</span></button>
+        <button class="${getPriorityLevel(item)==='inspiracional'?'active':''}" data-action="priority" data-value="inspiracional" title="Inspiracional"><span>Insp.</span></button>
+      </div>
+      <div class="card-controls">
+        ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">Abrir</a>` : '<button disabled>Abrir</button>'}
+        ${options.hideDelete ? '' : '<button data-action="delete">Remover</button>'}
+      </div>
+    </div>
+  </article>`;
+}
+function renderGrid(id, items, options = {}) {
+  const el = document.getElementById(id);
+  if (!items.length) {
+    el.innerHTML = `<div class="empty-state"><strong>Nenhuma peça encontrada.</strong><br><small>Salve peças pelo popup ou ajuste os filtros.</small></div>`;
+    return;
+  }
+  el.innerHTML = items.map(item => itemCardHtml(item, state.items.findIndex(i => itemKey(i) === itemKey(item)), options)).join('');
+  bindCardActions(el, options);
+}
+function renderTypeFilters() {
+  const el = document.getElementById('type-filter-dashboard');
+  if (!el) return;
+  const counts = new Map();
+  state.items.forEach(item => {
+    const type = getItemType(item);
+    counts.set(type, (counts.get(type) || 0) + 1);
+  });
+  const options = [['todos', 'Todos os tipos', state.items.length], ...Array.from(counts.entries()).sort((a,b) => b[1] - a[1]).map(([type,count]) => [type, type, count])];
+  el.innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.typeFilter===key?'active':''}" data-type="${escapeHtml(key)}">${escapeHtml(label)} · ${count}</button>`).join('');
+  el.querySelectorAll('[data-type]').forEach(btn => btn.addEventListener('click', () => { state.typeFilter = btn.dataset.type; renderCollection(); }));
+}
+function renderStoreFilters() {
+  const el = document.getElementById('store-filter-dashboard');
+  if (!el) return;
+  const counts = new Map();
+  state.items.forEach(item => {
+    const key = String(item.store || extractDomain(item.url) || 'Sem loja').toLowerCase();
+    const label = item.store || domainToName(extractDomain(item.url)) || 'Sem loja';
+    const current = counts.get(key) || { label, count: 0 };
+    current.count += 1;
+    counts.set(key, current);
+  });
+  const options = [{ key:'todos', label:'Todas as lojas', count:state.items.length }, ...Array.from(counts.entries()).map(([key, data]) => ({ key, ...data })).sort((a,b) => b.count - a.count)];
+  el.innerHTML = options.map(opt => `<button class="filter-chip ${state.storeFilter===opt.key?'active':''}" data-store-filter="${escapeHtml(opt.key)}">${escapeHtml(opt.label)} · ${opt.count}</button>`).join('');
+  el.querySelectorAll('[data-store-filter]').forEach(btn => btn.addEventListener('click', () => {
+    state.storeFilter = btn.dataset.storeFilter;
+    renderCollection();
+  }));
+}
+function applyTypeFilter(items) {
+  if (state.typeFilter === 'todos') return items;
+  return items.filter(item => getItemType(item) === state.typeFilter);
+}
+function renderCollection() {
+  renderTypeFilters();
+  renderStoreFilters();
+  renderGrid('collection-grid', sortItems(applyStoreFilter(applyTypeFilter(applySearch(state.items)))));
+}
+function renderPriorityFilters() {
+  const options = [
+    ['todos', 'Todas', state.items.length],
+    ['alta', 'Prioridade Alta', state.items.filter(i => getPriorityLevel(i) === 'alta').length],
+    ['avaliando', 'Avaliando', state.items.filter(i => getPriorityLevel(i) === 'avaliando').length],
+    ['inspiracional', 'Inspiracional', state.items.filter(i => getPriorityLevel(i) === 'inspiracional').length]
+  ];
+  document.getElementById('priority-filter-dashboard').innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.priorityFilter===key?'active':''}" data-priority="${key}">${label} · ${count}</button>`).join('');
+  document.querySelectorAll('[data-priority]').forEach(btn => btn.addEventListener('click', () => { state.priorityFilter = btn.dataset.priority; renderPriorities(); }));
+}
+function renderPriorities() {
+  renderPriorityFilters();
+  let items = state.items;
+  if (state.priorityFilter !== 'todos') items = items.filter(i => getPriorityLevel(i) === state.priorityFilter);
+  items = items.sort((a,b) => getCurationScore(b) - getCurationScore(a));
+  renderGrid('priorities-grid', items);
+}
+function trashIconHtml() {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 8h10l-.7 12H7.7L7 8Z"/></svg>`;
+}
+function renderFolderPicker(folder) {
+  const el = document.getElementById('folder-picker');
+  if (!el) return;
+  if (!folder) { el.innerHTML = ''; return; }
+  if (!state.folderPickerOpen) { el.innerHTML = ''; return; }
+  if (!state.items.length) {
+    el.innerHTML = '<div class="empty-state compact">Nenhuma peca salva para selecionar.</div>';
+    return;
+  }
+  const selectedKeys = new Set(folder.itemKeys);
+  el.innerHTML = `<div class="folder-picker-head">
+    <div><span class="eyebrow">Selecionar pecas</span><strong>Itens desta pasta</strong></div>
+    <div class="folder-picker-actions"><small>${selectedKeys.size} selecionada(s)</small><button class="ghost-btn" data-action="folder-picker-close">Concluir</button></div>
+  </div>
+  <div class="folder-picker-list">
+    ${sortItems(state.items).map(item => {
+      const key = itemKey(item);
+      return `<label class="folder-picker-item ${selectedKeys.has(key) ? 'selected' : ''}">
+        <input type="checkbox" data-folder-item="${escapeHtml(key)}" ${selectedKeys.has(key) ? 'checked' : ''}>
+        <span class="folder-picker-thumb">${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : ''}</span>
+        <span class="folder-picker-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.store || item.price || 'Sem loja')}</small></span>
+      </label>`;
+    }).join('')}
+  </div>`;
+  el.querySelectorAll('[data-folder-item]').forEach(input => input.addEventListener('change', async e => {
+    const key = e.target.dataset.folderItem;
+    if (e.target.checked) {
+      if (!folder.itemKeys.includes(key)) folder.itemKeys.push(key);
+    } else {
+      folder.itemKeys = folder.itemKeys.filter(itemKeyValue => itemKeyValue !== key);
+    }
+    await setFolders(state.folders);
+    renderFolders();
+  }));
+  el.querySelector('[data-action="folder-picker-close"]')?.addEventListener('click', () => {
+    state.folderPickerOpen = false;
+    renderFolders();
+  });
+}
+function renderFolderGrid(id, items, folder) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!items.length) {
+    el.innerHTML = `<div class="empty-state"><strong>Nenhuma peca nesta pasta.</strong><br><small>Use "Selecionar pecas" para montar este conjunto.</small></div>`;
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const index = state.items.findIndex(i => itemKey(i) === itemKey(item));
+    const key = itemKey(item);
+    return `<div class="folder-card-wrap" data-folder-remove-key="${escapeHtml(key)}">
+      <button class="folder-trash-btn" data-action="folder-trash" title="Tirar da pasta" aria-label="Tirar da pasta">${trashIconHtml()}</button>
+      ${itemCardHtml(item, index, { hideDelete: true })}
+    </div>`;
+  }).join('');
+  bindCardActions(el, { hideDelete: true });
+  el.querySelectorAll('[data-action="folder-trash"]').forEach(btn => btn.addEventListener('click', async () => {
+    const key = btn.closest('[data-folder-remove-key]')?.dataset.folderRemoveKey;
+    if (!key) return;
+    folder.itemKeys = folder.itemKeys.filter(itemKeyValue => itemKeyValue !== key);
+    await setFolders(state.folders);
+    await logActivity({ type:'pasta', itemName:folder.name, detail:'Peca removida da pasta' });
+    showToast('Peça removida da pasta');
+    renderFolders();
+  }));
+}
+function renderFolders() {
+  const list = document.getElementById('folder-list');
+  const current = document.getElementById('folder-current');
+  const picker = document.getElementById('folder-picker');
+  const selected = ensureSelectedFolder();
+  if (!list || !current) return;
+
+  if (!state.folders.length) {
+    list.innerHTML = '<div class="empty-state compact">Nenhuma pasta criada ainda.</div>';
+    current.innerHTML = '<strong>Crie uma pasta para guardar conjuntos de roupas.</strong><small>Depois selecione as pecas dentro dela.</small>';
+    if (picker) picker.innerHTML = '';
+    renderGrid('folders-grid', []);
+    return;
+  }
+
+  list.innerHTML = state.folders.map(folder => {
+    const count = getFolderItems(folder).length;
+    return `<button class="folder-chip ${folder.id === state.selectedFolderId ? 'active' : ''}" data-folder-id="${escapeHtml(folder.id)}">
+      <span>${escapeHtml(folder.name)}</span>
+      <small>${count} peca(s)</small>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-folder-id]').forEach(btn => btn.addEventListener('click', () => {
+    state.selectedFolderId = btn.dataset.folderId;
+    state.folderPickerOpen = false;
+    state.editingFolderId = null;
+    renderFolders();
+  }));
+
+  const items = getFolderItems(selected);
+  if (state.editingFolderId === selected.id) {
+    current.innerHTML = `<form class="folder-edit-form" data-action="save-folder-edit"><div><span class="eyebrow">Editar pasta</span><input data-edit-folder-name value="${escapeHtml(selected.name)}" maxlength="40" /></div><div class="folder-current-actions"><button class="solid-btn" type="submit">Salvar</button><button class="ghost-btn" type="button" data-action="cancel-folder-edit">Cancelar</button></div></form>`;
+    current.querySelector('[data-action="save-folder-edit"]')?.addEventListener('submit', async e => {
+      e.preventDefault();
+      selected.name = current.querySelector('[data-edit-folder-name]').value.trim() || selected.name;
+      state.editingFolderId = null;
+      await setFolders(state.folders);
+      await logActivity({ type:'pasta', itemName:selected.name, detail:'Pasta renomeada' });
+      showToast('Pasta renomeada');
+      renderAll();
+    });
+    current.querySelector('[data-action="cancel-folder-edit"]')?.addEventListener('click', () => {
+      state.editingFolderId = null;
+      renderFolders();
+    });
+  } else {
+    current.innerHTML = `<div><span class="eyebrow">Pasta selecionada</span><strong>${escapeHtml(selected.name)}</strong><small>${items.length} peca(s) neste conjunto</small></div><div class="folder-current-actions"><button class="solid-btn" data-action="folder-picker-toggle">${state.folderPickerOpen ? 'Ocultar selecao' : 'Selecionar pecas'}</button><button class="ghost-btn" data-action="folder-edit">Renomear</button><button class="ghost-btn" data-action="folder-delete">Apagar pasta</button></div>`;
+  }
+  current.querySelector('[data-action="folder-picker-toggle"]')?.addEventListener('click', () => {
+    state.folderPickerOpen = !state.folderPickerOpen;
+    renderFolders();
+  });
+  current.querySelector('[data-action="folder-edit"]')?.addEventListener('click', () => {
+    state.editingFolderId = selected.id;
+    renderFolders();
+  });
+  current.querySelector('[data-action="folder-delete"]')?.addEventListener('click', async () => {
+    const ok = await showConfirmDialog({
+      title: 'Apagar pasta?',
+      message: `A pasta "${selected.name}" sera removida. As pecas continuam salvas na colecao.`,
+      confirmLabel: 'Apagar pasta'
+    });
+    if (!ok) return;
+    state.folders = state.folders.filter(folder => folder.id !== selected.id);
+    state.selectedFolderId = state.folders[0]?.id || null;
+    await setFolders(state.folders);
+    await logActivity({ type:'pasta', itemName:selected.name, detail:'Pasta removida' });
+    showToast('Pasta removida', 'danger');
+    renderAll();
+  });
+
+  renderFolderPicker(selected);
+  renderFolderGrid('folders-grid', sortItems(items), selected);
+}
+function renderFavorites() {
+  renderGrid('favorites-grid', state.items.filter(i => i.favorite).sort((a,b) => getCurationScore(b) - getCurationScore(a)));
+}
+function renderTimeline() {
+  const el = document.getElementById('timeline-dashboard');
+  const fallback = state.items.slice(0, 12).map(i => ({ type:'salvo', itemName:i.name, detail:i.price ? `Salva por ${i.price}` : 'Adicionada à coleção', at:i.savedAt || i.updatedAt || Date.now(), url:i.url }));
+  const activities = state.activities.length ? state.activities : fallback;
+  if (!activities.length) { el.innerHTML = `<div class="empty-state">Nenhuma atividade registrada ainda.</div>`; return; }
+  el.innerHTML = activities.slice(0, 60).map(a => `<div class="timeline-item">
+    <div class="timeline-icon">${activityIcon(a.type)}</div>
+    <div class="timeline-body"><div class="timeline-top"><strong>${activityTitle(a.type)}</strong><span>${activityDateLabel(a.at)}</span></div><p>${escapeHtml(a.itemName || a.storeName || 'StashWear')}</p><small>${escapeHtml(a.detail || '')}</small></div>
+  </div>`).join('');
+}
+function renderStorePieces() {
+  const el = document.getElementById('store-pieces-dashboard');
+  if (!el) return;
+  const store = state.stores.find(s => extractDomain(s.url) === state.selectedStoreDomain);
+  if (!store) {
+    el.innerHTML = '';
+    return;
+  }
+  const items = getStoreItems(store);
+  el.innerHTML = `<div class="store-pieces-header">
+    <div><span class="eyebrow">Peças da loja</span><strong>${escapeHtml(getStoreName(store))}</strong><small>${items.length} peça(s) relacionadas</small></div>
+    <button class="ghost-btn" data-action="close-store-items">Fechar</button>
+  </div><div id="store-pieces-grid" class="collection-grid"></div>`;
+  el.querySelector('[data-action="close-store-items"]')?.addEventListener('click', () => {
+    state.selectedStoreDomain = null;
+    renderStores();
+  });
+  renderGrid('store-pieces-grid', sortItems(items));
+}
+function renderStores() {
+  const el = document.getElementById('stores-dashboard');
+  const piecesEl = document.getElementById('store-pieces-dashboard');
+  if (!el) return;
+  if (!state.stores.length) {
+    el.innerHTML = `<div class="empty-state"><strong>Nenhuma loja salva.</strong><br><small>As lojas detectadas pelo popup aparecem aqui automaticamente.</small></div>`;
+    if (piecesEl) piecesEl.innerHTML = '';
+    return;
+  }
+  el.innerHTML = state.stores.map((store, index) => {
+    const url = normalizeUrl(store.url);
+    const domain = extractDomain(url);
+    const name = getStoreName(store);
+    const initial = name.trim().charAt(0).toUpperCase() || 'L';
+    const count = getStoreItems(store).length;
+    if (state.editingStoreIndex === index) {
+      return `<article class="store-card editing" data-store-index="${index}">
+        <div class="store-avatar">${escapeHtml(initial)}</div>
+        <form class="store-edit-form" data-action="save-store-edit">
+          <input data-edit-store-name value="${escapeHtml(name)}" maxlength="48" />
+          <input data-edit-store-url value="${escapeHtml(url)}" />
+          <div class="store-card-actions">
+            <button class="solid-btn" type="submit">Salvar</button>
+            <button class="ghost-btn" type="button" data-action="cancel-store-edit">Cancelar</button>
+          </div>
+        </form>
+      </article>`;
+    }
+    return `<article class="store-card" data-store-index="${index}">
+      <div class="store-avatar">${escapeHtml(initial)}</div>
+      <div class="store-copy">
+        <div class="store-title-row"><strong>${escapeHtml(name)}</strong>${store.autoSaved ? '<span class="badge-auto">detectada</span>' : ''}</div>
+        <span>${escapeHtml(domain || url || 'Sem endereco')}</span>
+        <small>${count} peca(s) salvas desta loja</small>
+      </div>
+      <div class="store-card-actions">
+        <button class="ghost-btn" data-action="view-store-items">Peças</button>
+        <button class="ghost-btn" data-action="edit-store">Editar</button>
+        ${url ? `<a class="ghost-btn" href="${escapeHtml(url)}" target="_blank">Abrir</a>` : ''}
+        <button class="danger-icon-btn" data-action="delete-store" title="Remover loja" aria-label="Remover loja">${trashIconHtml()}</button>
+      </div>
+    </article>`;
+  }).join('');
+  el.querySelectorAll('[data-action="view-store-items"]').forEach(btn => btn.addEventListener('click', () => {
+    const index = Number(btn.closest('[data-store-index]')?.dataset.storeIndex);
+    state.selectedStoreDomain = extractDomain(state.stores[index]?.url);
+    renderStores();
+  }));
+  el.querySelectorAll('[data-action="edit-store"]').forEach(btn => btn.addEventListener('click', () => {
+    state.editingStoreIndex = Number(btn.closest('[data-store-index]')?.dataset.storeIndex);
+    renderStores();
+  }));
+  el.querySelectorAll('[data-action="cancel-store-edit"]').forEach(btn => btn.addEventListener('click', () => {
+    state.editingStoreIndex = null;
+    renderStores();
+  }));
+  el.querySelectorAll('[data-action="save-store-edit"]').forEach(form => form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const index = Number(form.closest('[data-store-index]')?.dataset.storeIndex);
+    const store = state.stores[index];
+    if (!store) return;
+    store.name = form.querySelector('[data-edit-store-name]').value.trim() || getStoreName(store);
+    store.url = normalizeUrl(form.querySelector('[data-edit-store-url]').value) || store.url;
+    state.editingStoreIndex = null;
+    await setStores(state.stores);
+    await logActivity({ type:'loja', storeName:store.name, detail:'Loja editada' });
+    showToast('Loja atualizada');
+    renderAll();
+  }));
+  el.querySelectorAll('[data-action="delete-store"]').forEach(btn => btn.addEventListener('click', async () => {
+    const card = btn.closest('[data-store-index]');
+    const index = Number(card?.dataset.storeIndex);
+    const store = state.stores[index];
+    if (!store) return;
+    const ok = await showConfirmDialog({
+      title: 'Remover loja?',
+      message: `"${store.name || 'Esta loja'}" sera removida da lista de lojas salvas. As pecas continuam na colecao.`,
+      confirmLabel: 'Remover loja'
+    });
+    if (!ok) return;
+    state.stores.splice(index, 1);
+    if (state.selectedStoreDomain === extractDomain(store.url)) state.selectedStoreDomain = null;
+    await setStores(state.stores);
+    await logActivity({ type:'loja', storeName:store.name, detail:'Loja removida' });
+    showToast('Loja removida', 'danger');
+    renderAll();
+  }));
+  renderStorePieces();
+}
+function renderAnalysis() {
+  const totalValue = state.items.reduce((sum, item) => sum + (parsePrice(item.price) || 0), 0);
+  const pending = state.items;
+  const brands = topEntries(state.items, 'store', 6);
+  const tags = topTags(state.items, 10);
+  const types = topEntries(state.items.map(i => ({ type: getItemType(i) })), 'type', 8);
+  const cards = [
+    ['Valor da coleção', formatPrice(totalValue), `${state.items.length} peça(s) salvas`],
+    ['Prioridades ativas', pending.filter(i => getPriorityLevel(i)==='alta').length, `${pending.length} peça(s) em aberto`],
+    ['Quedas de preço', state.items.filter(hasPriceDrop).length, 'Peças abaixo de um preço anterior'],
+    ['Favoritas', state.items.filter(i => i.favorite).length, 'Peças especiais da coleção']
+  ];
+  document.getElementById('analysis-dashboard').innerHTML = cards.map(([label,value,desc]) => `<div class="analysis-card"><span>${label}</span><strong>${value}</strong><small>${desc}</small></div>`).join('') +
+    `<div class="analysis-card"><span>Lojas mais salvas</span>${brands.length ? brands.map(([name,count]) => `<div class="brand-row"><span>${escapeHtml(name)}</span><em>${count}</em></div>`).join('') : '<small>Sem lojas registradas.</small>'}</div>` +
+    `<div class="analysis-card"><span>Tipos de peça</span>${types.length ? types.map(([name,count]) => `<div class="brand-row"><span>${escapeHtml(name)}</span><em>${count}</em></div>`).join('') : '<small>Sem tipos registrados.</small>'}</div>` +
+    `<div class="analysis-card"><span>Etiquetas</span>${tags.length ? tags.map(([name,count]) => `<div class="brand-row"><span>#${escapeHtml(name)}</span><em>${count}</em></div>`).join('') : '<small>Sem etiquetas registradas.</small>'}</div>`;
+}
+function renderAll() {
+  renderStats(); renderCuration(); renderCollection(); renderPriorities(); renderFolders(); renderFavorites(); renderTimeline(); renderStores(); renderAnalysis(); renderGlobalSearch(); renderNotifications();
+}
+async function loadData() {
+  state.items = await getItems();
+  state.activities = await getActivities();
+  state.folders = (await getFolders()).map(normalizeFolder);
+  state.stores = await getStores();
+  state.notifications = await getNotifications();
+  ensureSelectedFolder();
+  renderAll();
+}
+async function bootData() {
+  const session = await window.StashWearSync?.getSession?.();
+  if (session?.accessToken) {
+    try {
+      await setSyncStatus('syncing', 'Carregando colecao da conta');
+      await window.StashWearSync.syncAfterLogin({ saveLocal: false });
+      await setSyncStatus('synced', 'Sincronizado');
+    } catch (error) {
+      await setSyncStatus('error', 'Falha ao sincronizar');
+      showToast(authErrorMessage(error), 'danger');
+    }
+  }
+  await loadData();
+  await refreshSyncStatus();
+}
+function bindCardActions(container, options = {}) {
+  container.querySelectorAll('.item-card').forEach(card => {
+    const index = Number(card.dataset.index);
+    const item = state.items[index];
+    if (!item) return;
+    card.querySelector('[data-action="favorite"]')?.addEventListener('click', async () => {
+      item.favorite = !item.favorite;
+      item.updatedAt = Date.now();
+      await setItems(state.items);
+      await logActivity({ type:'favorita', itemName:item.name, detail:item.favorite ? 'Marcada como favorita' : 'Removida dos favoritos', url:item.url });
+      renderAll();
+    });
+    card.querySelectorAll('[data-action="priority"]').forEach(btn => btn.addEventListener('click', async () => {
+      item.curationPriority = btn.dataset.value;
+      item.buyThisMonth = btn.dataset.value !== 'inspiracional';
+      item.updatedAt = Date.now();
+      await setItems(state.items);
+      await logActivity({ type:'prioridade', itemName:item.name, detail:`Nova prioridade: ${priorityLabel(item)}`, url:item.url });
+      renderAll();
+    }));
+    card.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+      const ok = await showConfirmDialog({
+        title: 'Remover peca da colecao?',
+        message: `"${item.name || 'Esta peca'}" sera removida da colecao e de todas as pastas. Essa acao nao pode ser desfeita.`,
+        confirmLabel: 'Remover peca'
+      });
+      if (!ok) return;
+      const [removed] = state.items.splice(index, 1);
+      const removedKey = itemKey(removed);
+      state.folders.forEach(folder => { folder.itemKeys = folder.itemKeys.filter(key => key !== removedKey); });
+      await setFolders(state.folders);
+      await setItems(state.items);
+      showToast('Peça removida da coleção', 'danger');
+      await logActivity({ type:'removida', itemName:removed?.name, detail:'Peça removida pela tela completa', url:removed?.url });
+      renderAll();
+    });
+  });
+}
+
+document.querySelectorAll('.dash-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activateView(btn.dataset.view);
+  });
+});
+document.getElementById('global-search-input')?.addEventListener('input', e => {
+  state.globalSearch = e.target.value;
+  state.search = e.target.value;
+  state.typeFilter = 'todos';
+  state.storeFilter = 'todos';
+  const collectionSearch = document.getElementById('search-input');
+  if (collectionSearch) collectionSearch.value = state.search;
+  if (state.globalSearch.trim()) {
+    activateView('collection');
+    renderCollection();
+  }
+  renderGlobalSearch();
+});
+document.getElementById('search-input').addEventListener('input', e => { state.search = e.target.value; renderCollection(); });
+document.getElementById('sort-select-dashboard').addEventListener('change', e => { state.sort = e.target.value; renderCollection(); });
+document.getElementById('folder-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const input = document.getElementById('folder-name-input');
+  const name = input.value.trim();
+  if (!name) return;
+  const folder = normalizeFolder({ id: createFolderId(), name, itemKeys: [], createdAt: Date.now() });
+  state.folders.unshift(folder);
+  state.selectedFolderId = folder.id;
+  input.value = '';
+  await setFolders(state.folders);
+  await logActivity({ type:'pasta', itemName:name, detail:'Pasta criada' });
+  showToast('Pasta criada');
+  renderAll();
+});
+document.getElementById('store-form-dashboard')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const nameInput = document.getElementById('store-name-dashboard');
+  const urlInput = document.getElementById('store-url-dashboard');
+  const url = normalizeUrl(urlInput.value);
+  const domain = extractDomain(url);
+  const name = nameInput.value.trim() || domainToName(domain);
+  if (!name || !url) return;
+  const exists = state.stores.some(store => extractDomain(store.url) === domain);
+  if (!exists) {
+    state.stores.push({ name, url });
+    await setStores(state.stores);
+    await logActivity({ type:'loja', storeName:name, detail:'Loja adicionada pelo dashboard' });
+    showToast('Loja adicionada');
+  } else {
+    showToast('Loja ja estava salva');
+  }
+  nameInput.value = '';
+  urlInput.value = '';
+  renderAll();
+});
+document.getElementById('btn-refresh').addEventListener('click', loadData);
+document.getElementById('btn-account')?.addEventListener('click', openAccountDialog);
+document.querySelectorAll('[data-account-action="close"]').forEach(el => el.addEventListener('click', closeAccountDialog));
+document.getElementById('account-form')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  await handleAccountAuth('login');
+});
+document.getElementById('btn-account-mode-signup')?.addEventListener('click', () => {
+  setAccountMode(accountMode === 'signup' ? 'login' : 'signup');
+});
+document.getElementById('btn-profile-save')?.addEventListener('click', async () => {
+  const input = document.getElementById('profile-name-input');
+  const displayName = input?.value.trim();
+  const validationMessage = validateDisplayName(displayName);
+  if (validationMessage) {
+    showToast(validationMessage, 'danger');
+    return;
+  }
+  try {
+    await window.StashWearSync?.updateDisplayName?.(displayName);
+    await refreshAccountUi();
+    showToast('Nome de usuario atualizado');
+  } catch (error) {
+    showToast(authErrorMessage(error), 'danger');
+  }
+});
+document.getElementById('btn-account-logout')?.addEventListener('click', async () => {
+  const ok = await showConfirmDialog({
+    title: 'Sair da conta?',
+    message: 'Ao sair, a colecao desta conta sera removida desta tela. Seus dados sincronizados continuam salvos na nuvem.',
+    confirmLabel: 'Sair da conta'
+  });
+  if (!ok) return;
+  await window.StashWearSync?.signOut?.();
+  await Promise.all([
+    setItems([]),
+    setActivities([]),
+    setFolders([]),
+    setStores([]),
+    setNotifications([])
+  ]);
+  state.items = [];
+  state.activities = [];
+  state.folders = [];
+  state.stores = [];
+  state.notifications = [];
+  state.selectedFolderId = null;
+  await setSyncStatus('offline', 'Conta desconectada');
+  await refreshAccountUi();
+  renderAll();
+  showToast('Conta desconectada');
+  closeAccountDialog();
+});
+document.getElementById('notification-bell')?.addEventListener('click', toggleNotificationPanel);
+document.addEventListener('click', event => {
+  const center = document.querySelector('.notification-center');
+  const panel = document.getElementById('notification-panel');
+  const bell = document.getElementById('notification-bell');
+  if (!center || !panel || !bell || panel.hidden || center.contains(event.target)) return;
+  panel.hidden = true;
+  bell.setAttribute('aria-expanded', 'false');
+});
+chrome.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (changes.notifications) {
+    state.notifications = changes.notifications.newValue || [];
+    renderNotifications();
+  }
+  if (changes[SYNC_STATUS_KEY] || changes.stashwearSupabaseSession) refreshSyncStatus();
+});
+document.getElementById('btn-open-popup-tip').addEventListener('click', showPopupTipDialog);
+
+refreshAccountUi();
+bootData();

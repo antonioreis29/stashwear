@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StashWear V9 — Coleção Completa</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="sw-header">
+      <div class="brand-block">
+        <img src="icons/icon48.png" width="28" height="28" alt="StashWear" />
+        <div>
+          <h1>StashWear</h1>
+          <p>Guarda-roupa curado</p>
+        </div>
+      </div>
+      <span class="version-pill">V9</span>
+    </header>
+
+    <section class="save-strip">
+      <div class="save-copy">
+        <strong>Salvar peça atual</strong>
+        <span>Captura imagem, loja e preço automaticamente.</span>
+      </div>
+      <button id="btn-save-item" class="primary-action">Salvar</button>
+    </section>
+
+    <section id="auto-detect-preview" class="auto-detect-preview">
+      <div class="preview-thumb"><div class="thumb-placeholder">◇</div></div>
+      <div class="preview-copy">
+        <span class="eyebrow">Detectado agora</span>
+        <strong id="preview-name">Procurando peca...</strong>
+        <div class="preview-meta">
+          <span id="preview-price">Preco automatico</span>
+          <span id="preview-store">Loja automatica</span>
+          <span id="preview-category">Tipo automatico</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="dashboard-strip">
+      <div>
+        <strong>Coleção completa</strong>
+        <span>Abra o StashWear em tela cheia para gerenciar melhor suas peças.</span>
+      </div>
+      <button id="btn-open-dashboard" class="dashboard-action">Abrir</button>
+    </section>
+
+    <div id="stash-alert" class="alert-banner" style="display:none"></div>
+
+    <div id="validation-notice" class="validation-notice" style="display:none" role="alert">
+      <div class="validation-icon">!</div>
+      <div class="validation-copy">
+        <strong id="validation-title">Pagina nao reconhecida</strong>
+        <span id="validation-message"></span>
+      </div>
+      <button id="validation-close" class="validation-close" type="button" aria-label="Fechar aviso">×</button>
+    </div>
+
+    <section class="quick-edit-panel">
+      <details>
+        <summary>Ajustes opcionais</summary>
+        <div class="form-grid">
+          <div class="field-group span-2 auto-field">
+            <label>Nome</label>
+            <input id="item-name" type="text" placeholder="Automático pelo site" />
+          </div>
+          <div class="field-group auto-field">
+            <label>Preço atual</label>
+            <input id="item-price" type="text" placeholder="Automático" />
+          </div>
+          <div class="field-group auto-field">
+            <label>Categoria</label>
+            <select id="item-category">
+              <option value="">Tipo</option>
+              <option>Calça</option><option>Blusa</option><option>Vestido</option>
+              <option>Jaqueta</option><option>Tênis</option><option>Acessório</option><option>Outro</option>
+            </select>
+          </div>
+          <div class="field-group auto-field">
+            <label>Loja</label>
+            <select id="item-store"><option value="">Selecionar</option></select>
+          </div>
+          <div class="field-group">
+            <label>Uso</label>
+            <select id="item-priority">
+              <option value="casual">Casual</option>
+              <option value="trabalho">Trabalho</option>
+              <option value="evento">Evento</option>
+              <option value="viagem">Viagem</option>
+              <option value="presente">Presente</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Prioridade da peça</label>
+            <select id="item-buy-this-month"><option value="alta">⭐ Prioridade Alta</option><option value="avaliando" selected>● Avaliando</option><option value="inspiracional">○ Inspiracional</option></select>
+          </div>
+          <div class="field-group span-2">
+            <label>Etiquetas</label>
+            <input id="item-tags" type="text" placeholder="trabalho, verão, básico" />
+          </div>
+          <div class="field-group span-2">
+            <label>Nota</label>
+            <input id="item-note" type="text" placeholder="ex: comparar preço, esperar promoção" />
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <nav class="editorial-nav" aria-label="Navegação principal">
+      <button class="tab-btn active" data-tab="items">Coleção</button>
+      <button class="tab-btn" data-tab="shopping">Prioridades</button>
+      <button class="tab-btn" data-tab="insights">Análise</button>
+      <button class="tab-btn" data-tab="stores">Lojas</button>
+    </nav>
+
+    <section id="tab-items" class="tab active">
+      <section class="coleção-summary">
+        <div>
+          <span class="eyebrow">Lista de desejos</span>
+          <h2>Sua coleção</h2>
+        </div>
+        <div id="toolbar" class="toolbar" style="display:none">
+          <div id="total-box" class="total-box"></div>
+          <select id="sort-select" aria-label="Ordenar peças">
+            <option value="date">Recentes</option>
+            <option value="price">Preço</option>
+            <option value="store">Loja</option>
+            <option value="priority">Prioridade</option>
+            <option value="favorite">Favoritas</option>
+          </select>
+        </div>
+      </section>
+      <div class="section-heading"><span>Curadoria Atual</span><small>Peça de maior relevância da coleção</small></div><section id="featured-piece" class="featured-piece" style="display:none"></section>
+      <div id="filter-bar" class="filter-bar"></div>
+      <div id="items-list" class="card-list masonry-list"></div>
+    </section>
+
+    <section id="tab-shopping" class="tab">
+      <section class="panel-section compact-panel">
+        <div class="section-heading">
+          <span>Prioridades</span>
+          <small>⭐ Quero comprar • ● Avaliando • ○ Inspiracional</small>
+        </div>
+        <div id="priority-filter-bar" class="priority-filter-bar" aria-label="Filtro de prioridades"></div>
+        <div id="shopping-list" class="card-list shopping-list"></div>
+      </section>
+    </section>
+
+    <section id="tab-insights" class="tab">
+      <section class="panel-section timeline-panel">
+        <div class="section-heading">
+          <span>Atividades recentes</span>
+          <small>O histórico vivo da sua curadoria</small>
+        </div>
+        <div id="timeline-list" class="timeline-list"></div>
+      </section>
+      <section class="panel-section">
+        <div class="section-heading">
+          <span>Análise da coleção</span>
+          <small>Alertas, prioridades e estatísticas úteis</small>
+        </div>
+        <div id="analysis-grid" class="analysis-grid"></div>
+      </section>
+      <section class="panel-section">
+        <div class="section-heading">
+          <span>Etiquetas mais usadas</span>
+          <small>Organização da sua curadoria</small>
+        </div>
+        <div id="tags-grid" class="tags-grid"></div>
+      </section>
+    </section>
+
+    <section id="tab-stores" class="tab">
+      <section class="panel-section">
+        <div class="section-heading">
+          <span>Lojas</span>
+          <small>Lojas salvas</small>
+        </div>
+        <div class="form-grid stores-grid">
+          <div class="field-group">
+            <label>Nome</label>
+            <input id="store-name" type="text" placeholder="COS, Zara, Renner" />
+          </div>
+          <div class="field-group">
+            <label>Endereço</label>
+            <input id="store-url" type="text" placeholder="https://loja.com.br" />
+          </div>
+        </div>
+        <button id="btn-save-store" class="secondary-action">Adicionar loja</button>
+      </section>
+      <div id="stores-list" class="card-list stores-list"></div>
+    </section>
+  </main>
+
+  <div id="onboarding" class="onboarding-overlay" style="display:none">
+    <div class="onboarding-card">
+      <img src="icons/icon48.png" width="40" height="40" alt="StashWear" />
+      <h2>StashWear</h2>
+      <p>Salve peças diretamente das lojas e monte sua coleção visual.</p>
+      <button id="onboarding-close">Começar</button>
+    </div>
+  </div>
+
+  <script src="stashwear-scraper.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

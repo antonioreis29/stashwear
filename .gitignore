@@ -1,0 +1,21 @@
+# Local Supabase project settings.
+supabase-config.js
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and temporary files.
+*.log
+*.tmp
+*.bak
+
+# Packaged extension artifacts.
+*.zip
+*.crx
+*.pem
+
+# Dependency folders if tooling is added later.
+node_modules/
