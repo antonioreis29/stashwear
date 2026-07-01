@@ -13,23 +13,18 @@ StashWear é uma extensão de navegador para salvar, organizar e acompanhar peç
 ## Instalação local
 
 1. Baixe ou clone este repositório.
-2. Crie o arquivo local de configuração do Supabase:
-
-   ```powershell
-   Copy-Item supabase-config.example.js supabase-config.js
-   ```
-
-3. Edite `supabase-config.js` com a URL e a chave pública do seu projeto Supabase.
-4. Abra `chrome://extensions` no Chrome ou Edge.
-5. Ative o "Modo do desenvolvedor".
-6. Clique em "Carregar sem compactação".
-7. Selecione a pasta deste projeto.
+2. Abra `chrome://extensions` no Chrome ou Edge.
+3. Ative o "Modo do desenvolvedor".
+4. Clique em "Carregar sem compactação".
+5. Selecione a pasta deste projeto.
 
 ## Configuração do Supabase
 
-O arquivo real `supabase-config.js` não deve ir para o Git. Ele está no `.gitignore` de propósito.
+Este repositório inclui `supabase-config.js` com a configuração pública usada pela extensão oficial do StashWear. Isso permite que login e sincronização funcionem logo após instalar a extensão localmente.
 
-Use `supabase-config.example.js` como modelo:
+A chave `anon`/`publishable` do Supabase é feita para uso no cliente, mas ela precisa estar protegida por Row Level Security. Este projeto usa políticas RLS em `supabase-setup.sql` para limitar cada usuário aos próprios dados.
+
+Se você fizer um fork e quiser usar outro Supabase, substitua os valores de `supabase-config.js` ou use `supabase-config.example.js` como modelo:
 
 ```js
 globalThis.STASHWEAR_SUPABASE = {
@@ -38,16 +33,12 @@ globalThis.STASHWEAR_SUPABASE = {
 };
 ```
 
-Depois, no painel do Supabase:
+Para configurar outro projeto no painel do Supabase:
 
 1. Crie um projeto.
 2. Ative autenticação por e-mail/senha em Authentication.
 3. Rode o conteúdo de `supabase-setup.sql` no SQL Editor.
 4. Opcionalmente, use `supabase-email-confirmation-template.html` como template de confirmação de e-mail.
-
-A chave `anon`/`publishable` do Supabase é feita para uso no cliente, mas ela precisa estar protegida por Row Level Security. Este projeto usa políticas RLS em `supabase-setup.sql` para limitar cada usuário aos próprios dados.
-
-Se você já publicou a chave real por acidente, gere uma nova chave no Supabase antes de tornar o repositório público e confira se as políticas RLS estão ativas.
 
 ## Estrutura
 
@@ -79,7 +70,7 @@ node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console
 
 ## Antes de publicar
 
-- Confirme que `supabase-config.js` não aparece no `git status`.
+- Confirme que as políticas RLS do Supabase estão ativas antes de distribuir a extensão com `supabase-config.js`.
 - Revise as permissões em `manifest.json`.
 
 ## Licença

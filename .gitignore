@@ -1,6 +1,3 @@
-# Local Supabase project settings.
-supabase-config.js
-
 # OS/editor noise.
 .DS_Store
 Thumbs.db
