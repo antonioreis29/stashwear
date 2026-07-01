@@ -565,6 +565,27 @@ select option:checked,
   cursor:pointer;
 }
 .account-mode-copy button:hover{text-decoration:underline}
+.account-help-actions{
+  display:flex;
+  justify-content:center;
+  gap:12px;
+  flex-wrap:wrap;
+  margin:2px 0 0;
+}
+.account-help-actions[hidden]{display:none}
+.account-help-actions button{
+  border:0;
+  background:transparent;
+  color:#d8d5ce;
+  font:inherit;
+  font-size:12px;
+  font-weight:900;
+  padding:2px 0;
+}
+.account-help-actions button:hover{
+  color:var(--cream);
+  text-decoration:underline;
+}
 .account-profile{
   margin-top:18px;
   display:grid;

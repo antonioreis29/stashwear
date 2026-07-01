@@ -141,6 +141,46 @@
     return session;
   }
 
+  async function resendConfirmation(email) {
+    return authRequest('resend', { type: 'signup', email });
+  }
+
+  async function requestPasswordRecovery(email) {
+    const redirectTo = chrome.runtime?.getURL?.('dashboard.html');
+    return authRequest('recover', { email, ...(redirectTo ? { redirect_to: redirectTo } : {}) });
+  }
+
+  async function setPasswordFromRecovery(recoverySession, password) {
+    if (!isConfigured()) throw new Error('Supabase nao configurado.');
+    const accessToken = recoverySession?.accessToken;
+    if (!accessToken) throw new Error('Link de recuperacao invalido ou expirado.');
+    const response = await fetch(`${config.url}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        apikey: config.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error_description || data.msg || data.message || `Supabase Auth HTTP ${response.status}`);
+    const user = data.user || data;
+    const metadata = user.user_metadata || {};
+    const session = {
+      accessToken,
+      refreshToken: recoverySession.refreshToken || '',
+      expiresAt: recoverySession.expiresAt || Math.floor(Date.now() / 1000) + 3600,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: metadata.display_name || metadata.name || ''
+      }
+    };
+    await setSession(session);
+    return session;
+  }
+
   async function updateDisplayName(displayName) {
     const data = await authUserRequest('PUT', { data: { display_name: displayName } });
     const current = await getSession();
@@ -294,6 +334,9 @@
     hasAnyLocalData,
     signIn,
     signUp,
+    resendConfirmation,
+    requestPasswordRecovery,
+    setPasswordFromRecovery,
     signOut,
     updateDisplayName,
     syncAfterLogin,

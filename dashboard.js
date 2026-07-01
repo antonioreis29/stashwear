@@ -33,6 +33,7 @@ let state = {
   editingStoreIndex: null
 };
 let accountMode = 'login';
+let pendingRecoverySession = null;
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
@@ -250,6 +251,7 @@ function authErrorMessage(error) {
   if (!raw) return 'Nao foi possivel autenticar. Tente novamente.';
   if (raw.includes('invalid login credentials')) return 'E-mail ou senha incorretos. Confira os dados e tente novamente.';
   if (raw.includes('email not confirmed') || raw.includes('email_not_confirmed')) return 'Confirme seu e-mail antes de entrar.';
+  if (raw.includes('user not found') || raw.includes('not found')) return 'Nao encontramos uma conta com este e-mail.';
   if (raw.includes('user already registered') || raw.includes('already registered') || raw.includes('already been registered')) return 'Este e-mail ja esta cadastrado. Use Entrar em vez de Criar conta.';
   if (raw.includes('password should be at least') || (raw.includes('password') && raw.includes('characters'))) return 'A senha precisa ter pelo menos 6 caracteres.';
   if (raw.includes('weak password') || raw.includes('password is too weak')) return 'A senha esta fraca. Use letras, numeros e pelo menos 6 caracteres.';
@@ -276,9 +278,21 @@ function validateDisplayName(name) {
   return '';
 }
 function validateAccountFields(mode, email, password, displayName = '') {
+  if (mode === 'reset') {
+    if (!password) return 'Digite a nova senha.';
+    if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
+    if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
+    if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+    return '';
+  }
   if (mode === 'signup') {
     const nameMessage = validateDisplayName(displayName);
     if (nameMessage) return nameMessage;
+  }
+  if (mode === 'recover') {
+    if (!email) return 'Preencha o e-mail da sua conta.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return 'Digite um e-mail valido, como nome@exemplo.com.';
+    return '';
   }
   if (!email && !password) return 'Preencha o e-mail e a senha.';
   if (!email) return 'Preencha o e-mail.';
@@ -303,34 +317,52 @@ async function refreshAccountUi() {
   const modeCopy = document.getElementById('account-mode-copy');
   const modeQuestion = document.getElementById('account-mode-question');
   const modeButton = document.getElementById('btn-account-mode-signup');
+  const helpActions = document.getElementById('account-help-actions');
+  const recoverButton = document.getElementById('btn-account-recover');
+  const resendButton = document.getElementById('btn-account-resend-confirmation');
   const isLoggedIn = Boolean(session?.user?.email);
   const displayName = normalizeDisplayName(session?.user?.displayName, session?.user?.email);
+  const isRecovering = accountMode === 'recover';
+  const isResetting = accountMode === 'reset';
 
   if (accountBtn) accountBtn.textContent = isLoggedIn ? displayName : 'Entrar';
-  if (accountTitle) accountTitle.textContent = isLoggedIn ? 'Sua conta' : (accountMode === 'signup' ? 'Criar cadastro' : 'Entrar no StashWear');
+  if (accountTitle) accountTitle.textContent = isLoggedIn && !isResetting ? 'Sua conta' : (accountMode === 'signup' ? 'Criar cadastro' : isRecovering ? 'Recuperar senha' : isResetting ? 'Criar nova senha' : 'Entrar no StashWear');
   if (status) status.textContent = isLoggedIn
     ? 'Sua colecao esta vinculada a esta conta.'
-    : (accountMode === 'signup' ? 'Crie sua conta para sincronizar sua colecao.' : 'Entre para carregar e sincronizar sua colecao.');
-  if (accountForm) accountForm.hidden = isLoggedIn;
-  if (accountProfile) accountProfile.hidden = !isLoggedIn;
+    : (accountMode === 'signup'
+      ? 'Crie sua conta para sincronizar sua colecao.'
+      : isRecovering
+        ? 'Informe seu e-mail para receber o link de recuperacao.'
+        : isResetting
+          ? 'Digite uma nova senha para recuperar o acesso.'
+        : 'Entre para carregar e sincronizar sua colecao.');
+  if (accountForm) accountForm.hidden = isLoggedIn && !isResetting;
+  if (accountProfile) accountProfile.hidden = !isLoggedIn || isResetting;
   if (nameInput && !isLoggedIn) {
     nameInput.hidden = accountMode !== 'signup';
     nameInput.disabled = accountMode !== 'signup';
   }
   if (email) {
+    email.hidden = isResetting;
     if (!isLoggedIn) email.disabled = false;
   }
   if (password) {
     password.value = '';
-    if (!isLoggedIn) password.disabled = false;
+    password.hidden = isRecovering;
+    password.autocomplete = isResetting || accountMode === 'signup' ? 'new-password' : 'current-password';
+    password.placeholder = isResetting ? 'Nova senha' : 'Senha';
+    if (!isLoggedIn || isResetting) password.disabled = isRecovering;
   }
-  if (loginBtn) loginBtn.hidden = isLoggedIn;
-  if (loginBtn && !isLoggedIn) loginBtn.textContent = accountMode === 'signup' ? 'Criar conta' : 'Entrar';
-  if (modeCopy) modeCopy.hidden = isLoggedIn;
-  if (modeButton && !isLoggedIn) {
-    if (modeQuestion) modeQuestion.textContent = accountMode === 'signup' ? 'Ja tem conta?' : 'Ainda nao tem conta?';
-    modeButton.textContent = accountMode === 'signup' ? 'Entrar' : 'Criar cadastro';
+  if (loginBtn) loginBtn.hidden = isLoggedIn && !isResetting;
+  if (loginBtn && (!isLoggedIn || isResetting)) loginBtn.textContent = accountMode === 'signup' ? 'Criar conta' : isRecovering ? 'Enviar link' : isResetting ? 'Salvar nova senha' : 'Entrar';
+  if (modeCopy) modeCopy.hidden = isLoggedIn || isResetting;
+  if (modeButton && (!isLoggedIn || isResetting)) {
+    if (modeQuestion) modeQuestion.textContent = accountMode === 'signup' ? 'Ja tem conta?' : isRecovering ? 'Lembrou sua senha?' : 'Ainda nao tem conta?';
+    modeButton.textContent = accountMode === 'signup' ? 'Entrar' : isRecovering ? 'Voltar para entrar' : 'Criar cadastro';
   }
+  if (helpActions) helpActions.hidden = isLoggedIn || isRecovering || isResetting;
+  if (recoverButton) recoverButton.hidden = accountMode !== 'login';
+  if (resendButton) resendButton.hidden = accountMode !== 'login';
 
   const profileName = document.getElementById('profile-name');
   const profileEmail = document.getElementById('profile-email');
@@ -351,15 +383,19 @@ function openAccountDialog() {
   dialog.setAttribute('aria-hidden', 'false');
   refreshAccountUi().then(async () => {
     const session = await window.StashWearSync?.getSession?.();
-    if (!session?.user?.email) accountMode = 'login';
+    if (!session?.user?.email && accountMode !== 'reset') accountMode = 'login';
     await refreshAccountUi();
     setTimeout(() => {
-      (session?.user?.email ? document.getElementById('profile-name-input') : document.getElementById('account-email'))?.focus?.();
+      (accountMode === 'reset'
+        ? document.getElementById('account-password')
+        : session?.user?.email
+          ? document.getElementById('profile-name-input')
+          : document.getElementById('account-email'))?.focus?.();
     }, 0);
   });
 }
 function setAccountMode(mode) {
-  accountMode = mode === 'signup' ? 'signup' : 'login';
+  accountMode = mode === 'signup' ? 'signup' : mode === 'recover' ? 'recover' : mode === 'reset' ? 'reset' : 'login';
   refreshAccountUi();
   setTimeout(() => {
     (accountMode === 'signup' ? document.getElementById('account-name') : document.getElementById('account-email'))?.focus?.();
@@ -379,6 +415,29 @@ async function handleAccountAuth(mode) {
   const validationMessage = validateAccountFields(mode, email, password, displayName);
   if (validationMessage) {
     showToast(validationMessage, 'danger');
+    return;
+  }
+  if (mode === 'recover') {
+    try {
+      await window.StashWearSync.requestPasswordRecovery(email);
+      showToast('Enviamos um link de recuperacao para seu e-mail.');
+      setAccountMode('login');
+    } catch (error) {
+      showToast(authErrorMessage(error), 'danger');
+    }
+    return;
+  }
+  if (mode === 'reset') {
+    try {
+      await window.StashWearSync.setPasswordFromRecovery(pendingRecoverySession, password);
+      pendingRecoverySession = null;
+      showToast('Senha atualizada. Sua conta foi conectada.');
+      await refreshAccountUi();
+      await bootData();
+      closeAccountDialog();
+    } catch (error) {
+      showToast(authErrorMessage(error), 'danger');
+    }
     return;
   }
   try {
@@ -408,6 +467,44 @@ async function handleAccountAuth(mode) {
     await refreshAccountUi();
   } catch (error) {
     await setSyncStatus('error', 'Falha ao sincronizar');
+    showToast(authErrorMessage(error), 'danger');
+  }
+}
+
+function readRecoverySessionFromHash() {
+  const hash = window.location.hash?.replace(/^#/, '');
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  if (params.get('type') !== 'recovery') return null;
+  const accessToken = params.get('access_token');
+  if (!accessToken) return null;
+  const expiresIn = Number(params.get('expires_in') || 3600);
+  return {
+    accessToken,
+    refreshToken: params.get('refresh_token') || '',
+    expiresAt: Math.floor(Date.now() / 1000) + expiresIn
+  };
+}
+
+function bootRecoveryFlow() {
+  pendingRecoverySession = readRecoverySessionFromHash();
+  if (!pendingRecoverySession) return;
+  history.replaceState(null, document.title, `${location.pathname}${location.search}`);
+  accountMode = 'reset';
+  openAccountDialog();
+}
+
+async function handleResendConfirmation() {
+  const email = document.getElementById('account-email')?.value.trim();
+  const validationMessage = validateAccountFields('recover', email, '');
+  if (validationMessage) {
+    showToast(validationMessage, 'danger');
+    return;
+  }
+  try {
+    await window.StashWearSync.resendConfirmation(email);
+    showToast('Reenviamos o e-mail de confirmacao.');
+  } catch (error) {
     showToast(authErrorMessage(error), 'danger');
   }
 }
@@ -1216,8 +1313,10 @@ document.getElementById('account-form')?.addEventListener('submit', async event 
   await handleAccountAuth('login');
 });
 document.getElementById('btn-account-mode-signup')?.addEventListener('click', () => {
-  setAccountMode(accountMode === 'signup' ? 'login' : 'signup');
+  setAccountMode(accountMode === 'signup' || accountMode === 'recover' ? 'login' : 'signup');
 });
+document.getElementById('btn-account-recover')?.addEventListener('click', () => setAccountMode('recover'));
+document.getElementById('btn-account-resend-confirmation')?.addEventListener('click', handleResendConfirmation);
 document.getElementById('btn-profile-save')?.addEventListener('click', async () => {
   const input = document.getElementById('profile-name-input');
   const displayName = input?.value.trim();
@@ -1282,3 +1381,4 @@ document.getElementById('btn-open-popup-tip').addEventListener('click', showPopu
 
 refreshAccountUi();
 bootData();
+bootRecoveryFlow();

@@ -56,6 +56,8 @@ Para configurar outro projeto:
 2. Ative autenticação por e-mail/senha em **Authentication**.
 3. Rode `supabase-setup.sql` no **SQL Editor**.
 4. Opcionalmente, use `supabase-email-confirmation-template.html` como template de confirmação de e-mail.
+5. Opcionalmente, use `supabase-password-recovery-template.html` como template de recuperação de senha.
+6. Em **Authentication > URL Configuration**, adicione a URL do dashboard da extensão em **Redirect URLs** para que o link de recuperação consiga voltar para a extensão.
 
 ## Estrutura
 
@@ -68,6 +70,8 @@ Para configurar outro projeto:
 | `background.js` | Service worker, alarmes, notificações e sync |
 | `supabase-sync.js` | Cliente de sincronização |
 | `supabase-setup.sql` | Tabela e políticas RLS |
+| `supabase-email-confirmation-template.html` | Template de confirmação de e-mail |
+| `supabase-password-recovery-template.html` | Template de recuperação de senha |
 
 ## Permissões
 
