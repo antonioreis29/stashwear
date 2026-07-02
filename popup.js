@@ -6,10 +6,47 @@ const getStores = () => get('stores');
 const setStores = v => save('stores', v);
 const getActivities = () => get('activities');
 const setActivities = v => save('activities', v);
+const THEME_KEY = 'stashwearTheme';
 
 let activeFilter = 'Todos';
 let activeSort = 'date';
 let activePriorityFilter = 'todos';
+
+function normalizeTheme(value) {
+  return ['light', 'dark'].includes(value) ? value : 'dark';
+}
+function resolveTheme(theme) {
+  return normalizeTheme(theme);
+}
+function applyTheme(theme = 'dark') {
+  const normalized = normalizeTheme(theme);
+  const resolved = resolveTheme(normalized);
+  document.documentElement.dataset.themePreference = normalized;
+  document.documentElement.dataset.theme = resolved;
+  document.querySelectorAll('[data-theme-option]').forEach(button => {
+    const isActive = button.dataset.themeOption === normalized;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
+async function loadThemePreference() {
+  const data = await new Promise(resolve => chrome.storage.local.get(THEME_KEY, resolve));
+  applyTheme(data[THEME_KEY] || 'dark');
+}
+async function setThemePreference(theme) {
+  const normalized = normalizeTheme(theme);
+  await chrome.storage.local.set({ [THEME_KEY]: normalized });
+  applyTheme(normalized);
+}
+function bindThemeControls() {
+  document.querySelectorAll('[data-theme-option]').forEach(button => {
+    button.addEventListener('click', () => setThemePreference(button.dataset.themeOption));
+  });
+}
+
+applyTheme('dark');
+bindThemeControls();
+loadThemePreference();
 
 // ── Abas ───────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -743,6 +780,9 @@ if (openDashboardBtn) {
 }
 
 document.getElementById('validation-close')?.addEventListener('click', hideValidationNotice);
+chrome.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes[THEME_KEY]) applyTheme(changes[THEME_KEY].newValue || 'dark');
+});
 
 refreshAll();
 

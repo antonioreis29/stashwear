@@ -11,6 +11,7 @@ const setStores = value => save('stores', value);
 const getNotifications = () => get('notifications');
 const setNotifications = value => save('notifications', value);
 const SYNC_STATUS_KEY = 'stashwearSyncStatus';
+const THEME_KEY = 'stashwearTheme';
 const getStorageObject = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
 
 let state = {
@@ -34,6 +35,38 @@ let state = {
 };
 let accountMode = 'login';
 let pendingRecoverySession = null;
+
+function normalizeTheme(value) {
+  return ['light', 'dark'].includes(value) ? value : 'dark';
+}
+function resolveTheme(theme) {
+  return normalizeTheme(theme);
+}
+function applyTheme(theme = 'dark') {
+  const normalized = normalizeTheme(theme);
+  const resolved = resolveTheme(normalized);
+  document.documentElement.dataset.themePreference = normalized;
+  document.documentElement.dataset.theme = resolved;
+  document.querySelectorAll('[data-theme-option]').forEach(button => {
+    const isActive = button.dataset.themeOption === normalized;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
+async function loadThemePreference() {
+  const data = await getStorageObject(THEME_KEY);
+  applyTheme(data[THEME_KEY] || 'dark');
+}
+async function setThemePreference(theme) {
+  const normalized = normalizeTheme(theme);
+  await chrome.storage.local.set({ [THEME_KEY]: normalized });
+  applyTheme(normalized);
+}
+function bindThemeControls() {
+  document.querySelectorAll('[data-theme-option]').forEach(button => {
+    button.addEventListener('click', () => setThemePreference(button.dataset.themeOption));
+  });
+}
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
@@ -1448,9 +1481,13 @@ chrome.storage?.onChanged?.addListener((changes, areaName) => {
     renderNotifications();
   }
   if (changes[SYNC_STATUS_KEY] || changes.stashwearSupabaseSession) refreshSyncStatus();
+  if (changes[THEME_KEY]) applyTheme(changes[THEME_KEY].newValue || 'dark');
 });
 document.getElementById('btn-open-popup-tip').addEventListener('click', showPopupTipDialog);
 
+applyTheme('dark');
+bindThemeControls();
+loadThemePreference();
 refreshAccountUi();
 bootData();
 bootRecoveryFlow();

@@ -177,3 +177,206 @@ select option:checked,
   border-color:rgba(255,255,255,.46);
   box-shadow:0 0 0 3px rgba(255,255,255,.1);
 }
+
+/* Tema: controles e modo claro */
+.popup-header-actions{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.theme-switch{
+  display:inline-grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:2px;
+  padding:3px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:rgba(255,255,255,.035);
+}
+.theme-switch button{
+  width:24px;
+  height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  border-radius:999px;
+  background:transparent;
+  color:var(--muted);
+  font-size:9px;
+  font-weight:950;
+  padding:0;
+}
+.theme-switch svg{
+  width:13px;
+  height:13px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.theme-switch button.active{
+  background:#fff;
+  color:#080808;
+}
+html[data-theme="light"]{
+  --black:#f7f4ef;
+  --surface:#ffffff;
+  --surface2:#f2eee7;
+  --surface3:#e8e1d6;
+  --white:#111111;
+  --muted:#4f4942;
+  --line:rgba(17,17,17,.18);
+  --line2:rgba(17,17,17,.32);
+}
+html[data-theme="light"] body{
+  background:radial-gradient(circle at 50% -10%,rgba(17,17,17,.12),transparent 30%),#f7f4ef;
+  color:#111;
+}
+html[data-theme="light"] .save-strip,
+html[data-theme="light"] .dashboard-strip,
+html[data-theme="light"] .auto-detect-preview,
+html[data-theme="light"] .quick-edit-panel details,
+html[data-theme="light"] .panel-section,
+html[data-theme="light"] .item-card,
+html[data-theme="light"] .featured-piece,
+html[data-theme="light"] .store-card,
+html[data-theme="light"] .analysis-card,
+html[data-theme="light"] .timeline-item,
+html[data-theme="light"] .validation-notice,
+html[data-theme="light"] .onboarding-card{
+  border-color:rgba(17,17,17,.2);
+  background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(247,244,239,.96));
+  box-shadow:0 14px 38px rgba(47,40,31,.16);
+}
+html[data-theme="light"] .editorial-nav,
+html[data-theme="light"] .theme-switch,
+html[data-theme="light"] .version-pill{
+  border-color:rgba(17,17,17,.24);
+  background:rgba(255,255,255,.88);
+  color:#29241f;
+}
+html[data-theme="light"] .primary-action,
+html[data-theme="light"] .secondary-action,
+html[data-theme="light"] .dashboard-action,
+html[data-theme="light"] .tab-btn.active,
+html[data-theme="light"] .filter-chip.active,
+html[data-theme="light"] .priority-filter-chip.active,
+html[data-theme="light"] .priority-filter-chip:hover,
+html[data-theme="light"] .theme-switch button.active,
+html[data-theme="light"] .timeline-icon,
+html[data-theme="light"] .store-avatar,
+html[data-theme="light"] .featured-copy .btn-open,
+html[data-theme="light"] .btn-fav.active{
+  background:#111;
+  border-color:#111;
+  color:#fff;
+}
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] .field-group input,
+html[data-theme="light"] .field-group select,
+html[data-theme="light"] #sort-select{
+  color-scheme:light;
+  border-color:rgba(17,17,17,.26);
+  background:#fff;
+  color:#111;
+}
+html[data-theme="light"] select option,
+html[data-theme="light"] .field-group select option,
+html[data-theme="light"] #sort-select option{
+  background:#fff;
+  color:#111;
+}
+html[data-theme="light"] .tab-btn,
+html[data-theme="light"] .filter-chip,
+html[data-theme="light"] .priority-filter-chip,
+html[data-theme="light"] .item-actions a,
+html[data-theme="light"] .item-actions button,
+html[data-theme="light"] .store-actions a,
+html[data-theme="light"] .store-actions button,
+html[data-theme="light"] .btn-fav,
+html[data-theme="light"] .tag-pill,
+html[data-theme="light"] .badge,
+html[data-theme="light"] .badge-auto{
+  border-color:rgba(17,17,17,.24);
+  background:rgba(255,255,255,.9);
+  color:#181512;
+}
+html[data-theme="light"] .preview-thumb,
+html[data-theme="light"] .item-thumb,
+html[data-theme="light"] .featured-image,
+html[data-theme="light"] .mood-tile,
+html[data-theme="light"] .thumb-placeholder{
+  border-color:rgba(17,17,17,.2);
+  background:linear-gradient(180deg,#fff,#eee8dd);
+  color:#4f4942;
+}
+html[data-theme="light"] .preview-copy strong,
+html[data-theme="light"] .item-name,
+html[data-theme="light"] .item-price,
+html[data-theme="light"] .timeline-top strong,
+html[data-theme="light"] .timeline-body p,
+html[data-theme="light"] .section-heading span,
+html[data-theme="light"] .analysis-card strong,
+html[data-theme="light"] .brand-row em,
+html[data-theme="light"] .store-name,
+html[data-theme="light"] .validation-copy strong{
+  color:#111;
+}
+html[data-theme="light"] .timeline-body small,
+html[data-theme="light"] .timeline-top span,
+html[data-theme="light"] .validation-copy span,
+html[data-theme="light"] .item-note,
+html[data-theme="light"] .price-range,
+html[data-theme="light"] .total-box,
+html[data-theme="light"] .store-url,
+html[data-theme="light"] .dashboard-strip span,
+html[data-theme="light"] .save-copy span{
+  color:#4f4942;
+}
+html[data-theme="light"] .brand-block p,
+html[data-theme="light"] .eyebrow,
+html[data-theme="light"] .section-heading small,
+html[data-theme="light"] .analysis-card small,
+html[data-theme="light"] .empty-state small,
+html[data-theme="light"] .item-store-tag,
+html[data-theme="light"] .item-note,
+html[data-theme="light"] .store-url,
+html[data-theme="light"] .preview-meta span,
+html[data-theme="light"] .featured-meta span,
+html[data-theme="light"] .total-box{
+  color:#4f4942;
+}
+html[data-theme="light"] h1,
+html[data-theme="light"] .collection-summary h2,
+html[data-theme="light"] .featured-copy h3,
+html[data-theme="light"] .section-heading span,
+html[data-theme="light"] .total-box strong,
+html[data-theme="light"] .brand-row,
+html[data-theme="light"] .store-name{
+  color:#111;
+}
+html[data-theme="light"] .theme-switch button,
+html[data-theme="light"] .tab-btn{
+  color:#3b352f;
+}
+html[data-theme="light"] input::placeholder{
+  color:#625a51;
+}
+html[data-theme="light"] input:focus,
+html[data-theme="light"] select:focus,
+html[data-theme="light"] .field-group input:focus,
+html[data-theme="light"] .field-group select:focus,
+html[data-theme="light"] #sort-select:focus{
+  border-color:rgba(17,17,17,.5);
+  box-shadow:0 0 0 3px rgba(17,17,17,.08);
+}
+html[data-theme="light"] .item-card:hover{
+  border-color:rgba(17,17,17,.34);
+  box-shadow:0 18px 44px rgba(47,40,31,.18);
+}
+html[data-theme="light"] .onboarding-overlay{
+  background:rgba(246,243,238,.76);
+}

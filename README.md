@@ -55,6 +55,7 @@ Permitir que o usuario salve, organize e acompanhe produtos de moda online em um
 - Login e sincronizacao via Supabase.
 - Cadastro com confirmacao dupla de e-mail, confirmacao de senha e regra minima de senha forte dentro da extensao.
 - Indicador visual de forca da senha e botoes para mostrar/ocultar senha.
+- Tema claro e escuro com alternancia por icones de sol e lua.
 - Interface pensada para uma wishlist de moda, nao apenas bookmarks.
 
 ## Fluxo de uso
@@ -141,6 +142,17 @@ Esse acesso e usado para:
 - exibir alertas e notificacoes de preco.
 
 ## Desenvolvimento
+
+### Tema da interface
+
+O dashboard e o popup compartilham a mesma preferencia de tema em `chrome.storage.local`, na chave `stashwearTheme`.
+
+Valores aceitos:
+
+- `dark`: mantem a interface escura;
+- `light`: usa o modo claro editorial.
+
+O tema e aplicado no elemento `html` com os atributos `data-theme-preference` e `data-theme`, permitindo que o CSS trate preferencia e tema resolvido separadamente.
 
 ### Regra de senha
 

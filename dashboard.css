@@ -1209,3 +1209,262 @@ select option:checked,
     order:4;
   }
 }
+
+/* Tema: controles e modo claro */
+.theme-switch{
+  height:40px;
+  display:inline-grid;
+  grid-template-columns:repeat(2,auto);
+  align-items:center;
+  gap:3px;
+  padding:4px;
+  border:1px solid rgba(232,227,218,.22);
+  border-radius:999px;
+  background:rgba(255,255,255,.025);
+}
+.theme-switch button{
+  height:30px;
+  width:38px;
+  min-width:38px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  border-radius:999px;
+  background:transparent;
+  color:#b8b8b2;
+  font-size:10px;
+  font-weight:950;
+  padding:0;
+}
+.theme-switch button:hover{
+  color:#fff;
+  background:rgba(255,255,255,.06);
+}
+.theme-switch button.active{
+  background:var(--cream);
+  color:#080808;
+  box-shadow:0 8px 20px rgba(0,0,0,.18);
+}
+.theme-switch svg{
+  width:16px;
+  height:16px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+html[data-theme="light"]{
+  --black:#f7f4ef;
+  --surface:#ffffff;
+  --surface2:#f2eee7;
+  --surface3:#e8e1d6;
+  --white:#111111;
+  --cream:#111111;
+  --muted:#4f4942;
+  --line:rgba(17,17,17,.18);
+  --line2:rgba(17,17,17,.32);
+  --sage:#7d8b7c;
+  --bluegray:#667582;
+}
+html[data-theme="light"] body{
+  background:radial-gradient(circle at 18% -12%,rgba(79,73,66,.14),transparent 30%),radial-gradient(circle at 88% 8%,rgba(102,117,130,.12),transparent 28%),linear-gradient(180deg,#faf8f3,#eee8df 48%,#f7f4ef);
+  color:#111;
+}
+html[data-theme="light"] .curation-card,
+html[data-theme="light"] .stats-panel,
+html[data-theme="light"] .dash-view,
+html[data-theme="light"] .decisions-panel,
+html[data-theme="light"] .analysis-card,
+html[data-theme="light"] .stat-card,
+html[data-theme="light"] .decision-card,
+html[data-theme="light"] .collection-filter-block,
+html[data-theme="light"] .folder-sidebar,
+html[data-theme="light"] .folder-current,
+html[data-theme="light"] .folder-picker,
+html[data-theme="light"] .store-card,
+html[data-theme="light"] .store-pieces-header,
+html[data-theme="light"] .timeline-item,
+html[data-theme="light"] .notification-panel,
+html[data-theme="light"] .account-panel,
+html[data-theme="light"] .tip-panel,
+html[data-theme="light"] .confirm-panel{
+  border-color:rgba(17,17,17,.2);
+  background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(247,244,239,.96));
+  box-shadow:0 18px 52px rgba(47,40,31,.15),0 0 0 1px rgba(255,255,255,.75);
+}
+html[data-theme="light"] .dash-nav,
+html[data-theme="light"] .theme-switch,
+html[data-theme="light"] .sync-status,
+html[data-theme="light"] .header-actions .ghost-btn,
+html[data-theme="light"] .notification-bell{
+  border-color:rgba(17,17,17,.24);
+  background:rgba(255,255,255,.88);
+  color:#191714;
+}
+html[data-theme="light"] .dash-tab,
+html[data-theme="light"] .item-store,
+html[data-theme="light"] .eyebrow,
+html[data-theme="light"] .filter-label,
+html[data-theme="light"] .piece-type,
+html[data-theme="light"] .timeline-top span,
+html[data-theme="light"] .notification-copy em,
+html[data-theme="light"] .store-copy small,
+html[data-theme="light"] .folder-current small,
+html[data-theme="light"] .account-copy p,
+html[data-theme="light"] .tip-copy p,
+html[data-theme="light"] .confirm-copy p{
+  color:#4f4942;
+}
+html[data-theme="light"] .solid-btn,
+html[data-theme="light"] .open-link,
+html[data-theme="light"] .dash-tab.active,
+html[data-theme="light"] .dash-tab:hover,
+html[data-theme="light"] .filter-chip.active,
+html[data-theme="light"] .theme-switch button.active,
+html[data-theme="light"] .fav-btn.active,
+html[data-theme="light"] .timeline-icon,
+html[data-theme="light"] .tip-icon,
+html[data-theme="light"] .profile-avatar,
+html[data-theme="light"] .store-avatar{
+  background:#111;
+  border-color:#111;
+  color:#fff;
+}
+html[data-theme="light"] .ghost-btn,
+html[data-theme="light"] .filter-chip,
+html[data-theme="light"] .pill,
+html[data-theme="light"] .badge,
+html[data-theme="light"] .tag,
+html[data-theme="light"] .fav-btn,
+html[data-theme="light"] .folder-chip,
+html[data-theme="light"] .card-controls select,
+html[data-theme="light"] .card-controls button,
+html[data-theme="light"] .card-controls a,
+html[data-theme="light"] .password-strength,
+html[data-theme="light"] .password-toggle{
+  border-color:rgba(17,17,17,.24);
+  background:rgba(255,255,255,.9);
+  color:#181512;
+}
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] .account-form input,
+html[data-theme="light"] .profile-field input{
+  color-scheme:light;
+  border-color:rgba(17,17,17,.26);
+  background:#fff;
+  color:#111;
+}
+html[data-theme="light"] input::placeholder{
+  color:#625a51;
+}
+html[data-theme="light"] select option{
+  background:#fff;
+  color:#111;
+}
+html[data-theme="light"] .item-card,
+html[data-theme="light"] .collection-grid .item-card,
+html[data-theme="light"] .featured-piece,
+html[data-theme="light"] .curation-image,
+html[data-theme="light"] .item-thumb,
+html[data-theme="light"] .preview-thumb,
+html[data-theme="light"] .folder-picker-thumb,
+html[data-theme="light"] .notification-thumb,
+html[data-theme="light"] .thumb-placeholder{
+  border-color:rgba(17,17,17,.2);
+  background:linear-gradient(180deg,#fff,#f2eee7);
+  color:#4f4942;
+}
+html[data-theme="light"] .item-name,
+html[data-theme="light"] .item-price,
+html[data-theme="light"] .timeline-top strong,
+html[data-theme="light"] .timeline-body p,
+html[data-theme="light"] .decision-card strong,
+html[data-theme="light"] .notification-copy strong,
+html[data-theme="light"] .profile-copy strong,
+html[data-theme="light"] .store-title-row strong,
+html[data-theme="light"] .brand-row,
+html[data-theme="light"] .brand-row em{
+  color:#111;
+}
+html[data-theme="light"] .decision-card strong{
+  color:#2f2923;
+  text-shadow:0 1px 0 rgba(255,255,255,.72);
+}
+html[data-theme="light"] .decision-card small{
+  color:#4f4942;
+}
+html[data-theme="light"] .decision-card em{
+  color:#080808;
+}
+html[data-theme="light"] .decision-thumb{
+  border-color:rgba(17,17,17,.26);
+  background:#fff;
+}
+html[data-theme="light"] .note,
+html[data-theme="light"] .timeline-body small,
+html[data-theme="light"] .notification-copy small,
+html[data-theme="light"] .profile-copy span,
+html[data-theme="light"] .store-copy span,
+html[data-theme="light"] .item-note{
+  color:#4f4942;
+}
+html[data-theme="light"] .curation-note,
+html[data-theme="light"] .stat-card small,
+html[data-theme="light"] .analysis-card small,
+html[data-theme="light"] .empty-state,
+html[data-theme="light"] .empty-state small,
+html[data-theme="light"] .folder-picker-head small,
+html[data-theme="light"] .folder-picker-copy small,
+html[data-theme="light"] .folder-chip small,
+html[data-theme="light"] .sync-status,
+html[data-theme="light"] .sync-status-label,
+html[data-theme="light"] .badge-auto{
+  color:#4f4942;
+}
+html[data-theme="light"] .brand-area p,
+html[data-theme="light"] .store-copy span,
+html[data-theme="light"] .folder-current small,
+html[data-theme="light"] .folder-picker-copy small{
+  color:#554e46;
+}
+html[data-theme="light"] .folder-picker-copy strong,
+html[data-theme="light"] .folder-chip span,
+html[data-theme="light"] .folder-current strong,
+html[data-theme="light"] .store-pieces-header strong,
+html[data-theme="light"] .view-header h2,
+html[data-theme="light"] .brand-area h1{
+  color:#111;
+}
+html[data-theme="light"] .theme-switch button,
+html[data-theme="light"] .dash-tab{
+  color:#3b352f;
+}
+html[data-theme="light"] input:focus,
+html[data-theme="light"] select:focus,
+html[data-theme="light"] .account-form input:focus,
+html[data-theme="light"] .profile-field input:focus{
+  border-color:rgba(17,17,17,.5);
+  box-shadow:0 0 0 3px rgba(17,17,17,.08);
+}
+html[data-theme="light"] .item-card:hover{
+  border-color:rgba(17,17,17,.34);
+  box-shadow:0 20px 54px rgba(47,40,31,.18);
+}
+html[data-theme="light"] .account-backdrop,
+html[data-theme="light"] .tip-backdrop,
+html[data-theme="light"] .confirm-backdrop{
+  background:rgba(246,243,238,.7);
+}
+@media (max-width:520px){
+  .theme-switch{
+    grid-column:1/-1;
+    width:100%;
+    grid-template-columns:repeat(2,1fr);
+  }
+  .theme-switch button{
+    min-width:0;
+  }
+}
