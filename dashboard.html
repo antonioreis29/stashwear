@@ -163,8 +163,29 @@
         <input id="account-name" type="text" autocomplete="nickname" placeholder="Nome de usuario" maxlength="32" hidden />
         <input id="account-email" type="email" autocomplete="email" placeholder="email@exemplo.com" required />
         <input id="account-email-confirm" type="email" autocomplete="email" placeholder="Confirmar e-mail" hidden />
-        <input id="account-password" type="password" autocomplete="current-password" placeholder="Senha" required />
-        <input id="account-password-confirm" type="password" autocomplete="new-password" placeholder="Confirmar senha" hidden />
+        <div class="password-field" data-password-field="account-password">
+          <input id="account-password" type="password" autocomplete="current-password" placeholder="Senha" required />
+          <button class="password-toggle" type="button" data-password-toggle="account-password" aria-label="Mostrar senha" title="Mostrar senha">Ver</button>
+        </div>
+        <div class="password-field" data-password-field="account-password-confirm" hidden>
+          <input id="account-password-confirm" type="password" autocomplete="new-password" placeholder="Confirmar senha" />
+          <button class="password-toggle" type="button" data-password-toggle="account-password-confirm" aria-label="Mostrar confirmacao de senha" title="Mostrar senha">Ver</button>
+        </div>
+        <div id="password-strength" class="password-strength" hidden>
+          <div class="strength-top">
+            <span>Forca da senha</span>
+            <strong id="password-strength-label">Obrigatoria</strong>
+          </div>
+          <div class="strength-meter" aria-hidden="true">
+            <span></span>
+          </div>
+          <ul class="password-rules">
+            <li data-password-rule="length">6 ou mais caracteres</li>
+            <li data-password-rule="uppercase">1 letra maiuscula</li>
+            <li data-password-rule="special">1 caractere especial</li>
+            <li data-password-rule="trim">Sem espaco no inicio ou fim</li>
+          </ul>
+        </div>
         <div class="account-actions">
           <button id="btn-account-login" class="solid-btn" type="submit">Entrar</button>
           <button class="ghost-btn" type="button" data-account-action="close">Fechar</button>

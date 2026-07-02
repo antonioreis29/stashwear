@@ -281,12 +281,48 @@ function validateDisplayName(name) {
   if (!/^[\p{L}\p{N} _.-]+$/u.test(value)) return 'Use apenas letras, numeros, espaco, ponto, hifen ou underline no nome.';
   return '';
 }
+function validateStrongPassword(password) {
+  if (!password) return 'Preencha a senha.';
+  if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
+  if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+  if (!/[A-Z]/.test(password)) return 'A senha precisa ter pelo menos 1 letra maiuscula.';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'A senha precisa ter pelo menos 1 caractere especial.';
+  return '';
+}
+function passwordChecks(password = '') {
+  return {
+    length: password.length >= 6,
+    uppercase: /[A-Z]/.test(password),
+    special: /[^A-Za-z0-9]/.test(password),
+    trim: password.length > 0 && password.trim() === password && password.length <= 72
+  };
+}
+function passwordStrengthInfo(password = '') {
+  const checks = passwordChecks(password);
+  const score = Object.values(checks).filter(Boolean).length;
+  if (!password) return { checks, score: 0, level: '', label: 'Obrigatoria' };
+  if (score >= 4) return { checks, score, level: 'strong', label: 'Forte' };
+  if (score >= 3) return { checks, score, level: 'good', label: 'Boa' };
+  return { checks, score, level: 'weak', label: 'Fraca' };
+}
+function updatePasswordStrength() {
+  const panel = document.getElementById('password-strength');
+  if (!panel) return;
+  const password = document.getElementById('account-password')?.value || '';
+  const label = document.getElementById('password-strength-label');
+  const info = passwordStrengthInfo(password);
+  panel.classList.remove('weak', 'good', 'strong');
+  if (info.level) panel.classList.add(info.level);
+  if (label) label.textContent = info.label;
+  Object.entries(info.checks).forEach(([key, valid]) => {
+    panel.querySelector(`[data-password-rule="${key}"]`)?.classList.toggle('valid', Boolean(valid));
+  });
+}
 function validateAccountFields(mode, email, password, displayName = '', emailConfirm = '', passwordConfirm = '') {
   if (mode === 'reset') {
-    if (!password) return 'Digite a nova senha.';
-    if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
-    if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
-    if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+    const passwordMessage = validateStrongPassword(password);
+    if (passwordMessage) return passwordMessage.replace('Preencha a senha.', 'Digite a nova senha.');
     if (!passwordConfirm) return 'Confirme a nova senha.';
     if (password !== passwordConfirm) return 'As senhas nao conferem.';
     return '';
@@ -304,12 +340,11 @@ function validateAccountFields(mode, email, password, displayName = '', emailCon
   if (!email) return 'Preencha o e-mail.';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return 'Digite um e-mail valido, como nome@exemplo.com.';
   if (!password) return 'Preencha a senha.';
-  if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
   if (mode === 'signup') {
     if (!emailConfirm) return 'Confirme o e-mail.';
     if (email.toLowerCase() !== String(emailConfirm || '').trim().toLowerCase()) return 'Os e-mails nao conferem.';
-    if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
-    if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+    const passwordMessage = validateStrongPassword(password);
+    if (passwordMessage) return passwordMessage;
     if (!passwordConfirm) return 'Confirme a senha.';
     if (password !== passwordConfirm) return 'As senhas nao conferem.';
   }
@@ -327,6 +362,8 @@ async function refreshAccountUi() {
   const emailConfirm = document.getElementById('account-email-confirm');
   const password = document.getElementById('account-password');
   const passwordConfirm = document.getElementById('account-password-confirm');
+  const passwordConfirmField = document.querySelector('[data-password-field="account-password-confirm"]');
+  const passwordStrength = document.getElementById('password-strength');
   const loginBtn = document.getElementById('btn-account-login');
   const modeCopy = document.getElementById('account-mode-copy');
   const modeQuestion = document.getElementById('account-mode-question');
@@ -366,17 +403,29 @@ async function refreshAccountUi() {
   if (password) {
     password.value = '';
     password.hidden = isRecovering;
+    password.type = 'password';
     password.autocomplete = isResetting || accountMode === 'signup' ? 'new-password' : 'current-password';
     password.placeholder = isResetting ? 'Nova senha' : 'Senha';
     if (!isLoggedIn || isResetting) password.disabled = isRecovering;
   }
   if (passwordConfirm) {
     passwordConfirm.value = '';
+    passwordConfirm.type = 'password';
     passwordConfirm.hidden = !isResetting && accountMode !== 'signup';
     passwordConfirm.disabled = isRecovering || (!isResetting && accountMode !== 'signup');
     passwordConfirm.required = isResetting || accountMode === 'signup';
     passwordConfirm.placeholder = isResetting ? 'Confirmar nova senha' : 'Confirmar senha';
   }
+  if (passwordConfirmField) passwordConfirmField.hidden = !isResetting && accountMode !== 'signup';
+  if (passwordStrength) passwordStrength.hidden = !isResetting && accountMode !== 'signup';
+  document.querySelectorAll('[data-password-toggle]').forEach(button => {
+    const target = document.getElementById(button.dataset.passwordToggle);
+    if (!target) return;
+    button.textContent = 'Ver';
+    button.setAttribute('aria-label', target.id === 'account-password-confirm' ? 'Mostrar confirmacao de senha' : 'Mostrar senha');
+    button.title = 'Mostrar senha';
+  });
+  updatePasswordStrength();
   if (loginBtn) loginBtn.hidden = isLoggedIn && !isResetting;
   if (loginBtn && (!isLoggedIn || isResetting)) loginBtn.textContent = accountMode === 'signup' ? 'Criar conta' : isRecovering ? 'Enviar link' : isResetting ? 'Salvar nova senha' : 'Entrar';
   if (modeCopy) modeCopy.hidden = isLoggedIn || isResetting;
@@ -1320,6 +1369,17 @@ document.getElementById('account-form')?.addEventListener('submit', async event 
   event.preventDefault();
   await handleAccountAuth('login');
 });
+document.getElementById('account-password')?.addEventListener('input', updatePasswordStrength);
+document.querySelectorAll('[data-password-toggle]').forEach(button => button.addEventListener('click', () => {
+  const input = document.getElementById(button.dataset.passwordToggle);
+  if (!input) return;
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  button.textContent = isHidden ? 'Ocultar' : 'Ver';
+  button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+  button.title = isHidden ? 'Ocultar senha' : 'Mostrar senha';
+  input.focus();
+}));
 document.getElementById('btn-account-mode-signup')?.addEventListener('click', () => {
   setAccountMode(accountMode === 'signup' || accountMode === 'recover' ? 'login' : 'signup');
 });

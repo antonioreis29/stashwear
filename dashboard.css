@@ -580,9 +580,120 @@ select option:checked,
   background:rgba(12,12,12,.9);
   box-shadow:0 0 0 3px rgba(232,227,218,.1),inset 0 1px 0 rgba(255,255,255,.05);
 }
+.password-field{
+  position:relative;
+  grid-column:1/-1;
+}
+.password-field[hidden]{display:none}
+.password-field input{
+  padding-right:62px;
+}
+.password-toggle{
+  position:absolute;
+  top:50%;
+  right:8px;
+  height:32px;
+  min-width:44px;
+  transform:translateY(-50%);
+  border:1px solid rgba(232,227,218,.18);
+  border-radius:999px;
+  background:rgba(232,227,218,.06);
+  color:#e8e3da;
+  font-size:11px;
+  font-weight:950;
+  padding:0 10px;
+}
+.password-toggle:hover{
+  border-color:rgba(232,227,218,.46);
+  background:rgba(232,227,218,.12);
+}
+.password-strength{
+  grid-column:1/-1;
+  border:1px solid rgba(232,227,218,.14);
+  border-radius:18px;
+  background:rgba(255,255,255,.028);
+  padding:12px;
+}
+.password-strength[hidden]{display:none}
+.strength-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.strength-top span{
+  color:var(--muted);
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.strength-top strong{
+  color:#d8d5ce;
+  font-size:11px;
+  font-weight:950;
+}
+.strength-meter{
+  height:7px;
+  margin-top:9px;
+  border-radius:999px;
+  background:rgba(255,255,255,.08);
+  overflow:hidden;
+}
+.strength-meter span{
+  display:block;
+  width:0;
+  height:100%;
+  border-radius:999px;
+  background:#ef4444;
+  transition:width .2s ease,background .2s ease;
+}
+.password-strength.weak .strength-meter span{
+  width:35%;
+  background:#ef4444;
+}
+.password-strength.good .strength-meter span{
+  width:70%;
+  background:#d8b86a;
+}
+.password-strength.strong .strength-meter span{
+  width:100%;
+  background:#35d07f;
+}
+.password-rules{
+  list-style:none;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px 10px;
+  margin:10px 0 0;
+  padding:0;
+}
+.password-rules li{
+  position:relative;
+  color:#a7a7a1;
+  font-size:11px;
+  line-height:1.25;
+  padding-left:16px;
+}
+.password-rules li:before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:.42em;
+  width:7px;
+  height:7px;
+  border-radius:999px;
+  background:#5b5b57;
+}
+.password-rules li.valid{
+  color:#d7dfd4;
+}
+.password-rules li.valid:before{
+  background:#35d07f;
+  box-shadow:0 0 0 3px rgba(53,208,127,.12);
+}
 #account-name,
 #account-email,
-#account-password,
 .account-actions,
 .account-mode-copy{
   grid-column:1/-1;
@@ -694,6 +805,9 @@ select option:checked,
     font-size:30px;
   }
   .account-form{
+    grid-template-columns:1fr;
+  }
+  .password-rules{
     grid-template-columns:1fr;
   }
   .account-actions{
