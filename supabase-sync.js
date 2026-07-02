@@ -8,6 +8,10 @@
     return Boolean(config.url && config.anonKey);
   }
 
+  function authRedirectTo() {
+    return String(config.authRedirectTo || '').trim();
+  }
+
   function getStorage(keys) {
     return new Promise(resolve => chrome.storage.local.get(keys, resolve));
   }
@@ -63,7 +67,14 @@
       body: JSON.stringify(body)
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error_description || data.msg || data.message || `Supabase Auth HTTP ${response.status}`);
+    if (!response.ok) {
+      const message = data.error_description || data.msg || data.message || data.error || `Supabase Auth HTTP ${response.status}`;
+      const error = new Error(message);
+      error.status = response.status;
+      error.code = data.code || data.error_code || data.error || '';
+      error.details = data;
+      throw error;
+    }
     return data;
   }
 
@@ -125,10 +136,12 @@
   }
 
   async function signUp(email, password, displayName = '') {
+    const redirectTo = authRedirectTo();
     const data = await authRequest('signup', {
       email,
       password,
-      data: { display_name: displayName }
+      data: { display_name: displayName },
+      ...(redirectTo ? { email_redirect_to: redirectTo, options: { email_redirect_to: redirectTo } } : {})
     });
     if (!data.access_token) {
       return {
@@ -141,13 +154,9 @@
     return session;
   }
 
-  async function resendConfirmation(email) {
-    return authRequest('resend', { type: 'signup', email });
-  }
-
   async function requestPasswordRecovery(email) {
-    const redirectTo = chrome.runtime?.getURL?.('dashboard.html');
-    return authRequest('recover', { email, ...(redirectTo ? { redirect_to: redirectTo } : {}) });
+    const redirectTo = authRedirectTo() || chrome.runtime?.getURL?.('dashboard.html');
+    return authRequest('recover', { email, ...(redirectTo ? { redirect_to: redirectTo, options: { redirect_to: redirectTo } } : {}) });
   }
 
   async function setPasswordFromRecovery(recoverySession, password) {
@@ -334,7 +343,6 @@
     hasAnyLocalData,
     signIn,
     signUp,
-    resendConfirmation,
     requestPasswordRecovery,
     setPasswordFromRecovery,
     signOut,

@@ -248,7 +248,11 @@ async function refreshSyncStatus() {
 }
 function authErrorMessage(error) {
   const raw = String(error?.message || error || '').toLowerCase();
+  console.error('StashWear auth error:', error);
   if (!raw) return 'Nao foi possivel autenticar. Tente novamente.';
+  if (raw.includes('redirect') || raw.includes('not allowed') || raw.includes('uri')) return 'URL de confirmacao nao permitida no Supabase. Adicione a URL publica em Authentication > URL Configuration.';
+  if (raw.includes('api key') || raw.includes('apikey') || raw.includes('invalid key')) return 'Chave do Supabase invalida. Confira a anon/public key em supabase-config.js.';
+  if (raw.includes('email provider') || raw.includes('smtp') || raw.includes('mail')) return 'Envio de e-mail nao configurado no Supabase. Confira Authentication > Email.';
   if (raw.includes('invalid login credentials')) return 'E-mail ou senha incorretos. Confira os dados e tente novamente.';
   if (raw.includes('email not confirmed') || raw.includes('email_not_confirmed')) return 'Confirme seu e-mail antes de entrar.';
   if (raw.includes('user not found') || raw.includes('not found')) return 'Nao encontramos uma conta com este e-mail.';
@@ -262,7 +266,7 @@ function authErrorMessage(error) {
   if (raw.includes('jwt') || raw.includes('token') || raw.includes('expired')) return 'Sua sessao expirou. Entre novamente.';
   if (raw.includes('database') || raw.includes('row-level security') || raw.includes('permission denied')) return 'Sem permissao para sincronizar. Confira se o SQL do Supabase foi atualizado.';
   if (raw.includes('entre na sua conta')) return 'Entre na sua conta ou realize cadastro para sincronizar.';
-  return 'Nao foi possivel autenticar. Confira os dados e tente novamente.';
+  return `Nao foi possivel autenticar: ${String(error?.message || error || 'erro desconhecido')}`;
 }
 function normalizeDisplayName(name, email = '') {
   const value = String(name || '').trim();
@@ -277,12 +281,14 @@ function validateDisplayName(name) {
   if (!/^[\p{L}\p{N} _.-]+$/u.test(value)) return 'Use apenas letras, numeros, espaco, ponto, hifen ou underline no nome.';
   return '';
 }
-function validateAccountFields(mode, email, password, displayName = '') {
+function validateAccountFields(mode, email, password, displayName = '', emailConfirm = '', passwordConfirm = '') {
   if (mode === 'reset') {
     if (!password) return 'Digite a nova senha.';
     if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
     if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
     if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+    if (!passwordConfirm) return 'Confirme a nova senha.';
+    if (password !== passwordConfirm) return 'As senhas nao conferem.';
     return '';
   }
   if (mode === 'signup') {
@@ -299,8 +305,14 @@ function validateAccountFields(mode, email, password, displayName = '') {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return 'Digite um e-mail valido, como nome@exemplo.com.';
   if (!password) return 'Preencha a senha.';
   if (password.length < 6) return 'A senha precisa ter pelo menos 6 caracteres.';
-  if (mode === 'signup' && password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
-  if (mode === 'signup' && password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+  if (mode === 'signup') {
+    if (!emailConfirm) return 'Confirme o e-mail.';
+    if (email.toLowerCase() !== String(emailConfirm || '').trim().toLowerCase()) return 'Os e-mails nao conferem.';
+    if (password.trim() !== password) return 'A senha nao pode comecar ou terminar com espaco.';
+    if (password.length > 72) return 'Use uma senha com ate 72 caracteres.';
+    if (!passwordConfirm) return 'Confirme a senha.';
+    if (password !== passwordConfirm) return 'As senhas nao conferem.';
+  }
   return '';
 }
 async function refreshAccountUi() {
@@ -312,14 +324,13 @@ async function refreshAccountUi() {
   const accountProfile = document.getElementById('account-profile');
   const nameInput = document.getElementById('account-name');
   const email = document.getElementById('account-email');
+  const emailConfirm = document.getElementById('account-email-confirm');
   const password = document.getElementById('account-password');
+  const passwordConfirm = document.getElementById('account-password-confirm');
   const loginBtn = document.getElementById('btn-account-login');
   const modeCopy = document.getElementById('account-mode-copy');
   const modeQuestion = document.getElementById('account-mode-question');
   const modeButton = document.getElementById('btn-account-mode-signup');
-  const helpActions = document.getElementById('account-help-actions');
-  const recoverButton = document.getElementById('btn-account-recover');
-  const resendButton = document.getElementById('btn-account-resend-confirmation');
   const isLoggedIn = Boolean(session?.user?.email);
   const displayName = normalizeDisplayName(session?.user?.displayName, session?.user?.email);
   const isRecovering = accountMode === 'recover';
@@ -346,12 +357,25 @@ async function refreshAccountUi() {
     email.hidden = isResetting;
     if (!isLoggedIn) email.disabled = false;
   }
+  if (emailConfirm) {
+    emailConfirm.value = '';
+    emailConfirm.hidden = accountMode !== 'signup' || isLoggedIn || isResetting;
+    emailConfirm.disabled = accountMode !== 'signup' || isLoggedIn || isResetting;
+    emailConfirm.required = accountMode === 'signup' && !isLoggedIn && !isResetting;
+  }
   if (password) {
     password.value = '';
     password.hidden = isRecovering;
     password.autocomplete = isResetting || accountMode === 'signup' ? 'new-password' : 'current-password';
     password.placeholder = isResetting ? 'Nova senha' : 'Senha';
     if (!isLoggedIn || isResetting) password.disabled = isRecovering;
+  }
+  if (passwordConfirm) {
+    passwordConfirm.value = '';
+    passwordConfirm.hidden = !isResetting && accountMode !== 'signup';
+    passwordConfirm.disabled = isRecovering || (!isResetting && accountMode !== 'signup');
+    passwordConfirm.required = isResetting || accountMode === 'signup';
+    passwordConfirm.placeholder = isResetting ? 'Confirmar nova senha' : 'Confirmar senha';
   }
   if (loginBtn) loginBtn.hidden = isLoggedIn && !isResetting;
   if (loginBtn && (!isLoggedIn || isResetting)) loginBtn.textContent = accountMode === 'signup' ? 'Criar conta' : isRecovering ? 'Enviar link' : isResetting ? 'Salvar nova senha' : 'Entrar';
@@ -360,10 +384,6 @@ async function refreshAccountUi() {
     if (modeQuestion) modeQuestion.textContent = accountMode === 'signup' ? 'Ja tem conta?' : isRecovering ? 'Lembrou sua senha?' : 'Ainda nao tem conta?';
     modeButton.textContent = accountMode === 'signup' ? 'Entrar' : isRecovering ? 'Voltar para entrar' : 'Criar cadastro';
   }
-  if (helpActions) helpActions.hidden = isLoggedIn || isRecovering || isResetting;
-  if (recoverButton) recoverButton.hidden = accountMode !== 'login';
-  if (resendButton) resendButton.hidden = accountMode !== 'login';
-
   const profileName = document.getElementById('profile-name');
   const profileEmail = document.getElementById('profile-email');
   const profileAvatar = document.getElementById('profile-avatar');
@@ -411,8 +431,10 @@ async function handleAccountAuth(mode) {
   mode = accountMode;
   const displayName = document.getElementById('account-name')?.value.trim();
   const email = document.getElementById('account-email')?.value.trim();
+  const emailConfirm = document.getElementById('account-email-confirm')?.value.trim();
   const password = document.getElementById('account-password')?.value;
-  const validationMessage = validateAccountFields(mode, email, password, displayName);
+  const passwordConfirm = document.getElementById('account-password-confirm')?.value;
+  const validationMessage = validateAccountFields(mode, email, password, displayName, emailConfirm, passwordConfirm);
   if (validationMessage) {
     showToast(validationMessage, 'danger');
     return;
@@ -494,20 +516,6 @@ function bootRecoveryFlow() {
   openAccountDialog();
 }
 
-async function handleResendConfirmation() {
-  const email = document.getElementById('account-email')?.value.trim();
-  const validationMessage = validateAccountFields('recover', email, '');
-  if (validationMessage) {
-    showToast(validationMessage, 'danger');
-    return;
-  }
-  try {
-    await window.StashWearSync.resendConfirmation(email);
-    showToast('Reenviamos o e-mail de confirmacao.');
-  } catch (error) {
-    showToast(authErrorMessage(error), 'danger');
-  }
-}
 function notificationDateLabel(ts) {
   const date = new Date(Number(ts) || Date.now());
   return date.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
@@ -1315,8 +1323,6 @@ document.getElementById('account-form')?.addEventListener('submit', async event 
 document.getElementById('btn-account-mode-signup')?.addEventListener('click', () => {
   setAccountMode(accountMode === 'signup' || accountMode === 'recover' ? 'login' : 'signup');
 });
-document.getElementById('btn-account-recover')?.addEventListener('click', () => setAccountMode('recover'));
-document.getElementById('btn-account-resend-confirmation')?.addEventListener('click', handleResendConfirmation);
 document.getElementById('btn-profile-save')?.addEventListener('click', async () => {
   const input = document.getElementById('profile-name-input');
   const displayName = input?.value.trim();

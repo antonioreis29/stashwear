@@ -514,40 +514,79 @@ select option:checked,
 .account-backdrop{
   position:absolute;
   inset:0;
-  background:rgba(0,0,0,.68);
-  backdrop-filter:blur(12px);
+  background:
+    radial-gradient(circle at 18% 18%,rgba(232,227,218,.12),transparent 26%),
+    radial-gradient(circle at 82% 78%,rgba(127,138,147,.12),transparent 28%),
+    rgba(0,0,0,.74);
+  backdrop-filter:blur(18px);
 }
 .account-panel{
   position:relative;
-  width:min(460px,100%);
-  border:1px solid rgba(232,227,218,.34);
-  border-radius:24px;
-  background:linear-gradient(180deg,rgba(24,24,23,.98),rgba(10,10,10,.98));
-  box-shadow:0 28px 90px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.04);
-  padding:22px;
+  width:min(520px,100%);
+  border:1px solid rgba(232,227,218,.36);
+  border-radius:26px;
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.075),transparent 36%),
+    linear-gradient(180deg,rgba(25,25,24,.98),rgba(8,8,8,.98));
+  box-shadow:0 32px 110px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.055),inset 0 1px 0 rgba(255,255,255,.08);
+  padding:28px;
+  overflow:hidden;
+}
+.account-panel:before{
+  content:"";
+  position:absolute;
+  inset:0 0 auto;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(232,227,218,.55),transparent);
+  opacity:.75;
+}
+.account-copy{
+  position:relative;
+  padding-right:10px;
 }
 .account-copy h2{
-  margin:5px 0 0;
-  font-size:30px;
-  line-height:.95;
-  letter-spacing:-.06em;
+  margin:7px 0 0;
+  font-size:34px;
+  line-height:.92;
+  letter-spacing:-.055em;
 }
 .account-copy p{
-  margin:10px 0 0;
-  color:#b8b8b2;
+  margin:12px 0 0;
+  max-width:370px;
+  color:#bdb9b0;
   font-size:13px;
-  line-height:1.4;
+  line-height:1.45;
 }
 .account-form{
-  margin-top:18px;
+  position:relative;
+  margin-top:22px;
   display:grid;
-  gap:10px;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
 }
 .account-form[hidden]{display:none}
 .account-form input{
   width:100%;
+  height:46px;
+  border-color:rgba(232,227,218,.16);
+  background:rgba(3,3,3,.56);
+  padding:0 16px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
+  transition:border-color .18s ease,background .18s ease,box-shadow .18s ease;
 }
 .account-form input[hidden]{display:none}
+.account-form input:focus{
+  border-color:rgba(232,227,218,.58);
+  background:rgba(12,12,12,.9);
+  box-shadow:0 0 0 3px rgba(232,227,218,.1),inset 0 1px 0 rgba(255,255,255,.05);
+}
+#account-name,
+#account-email,
+#account-password,
+.account-actions,
+.account-mode-copy{
+  grid-column:1/-1;
+}
 .account-mode-copy{
   margin:2px 0 0;
   color:#b8b8b2;
@@ -565,27 +604,6 @@ select option:checked,
   cursor:pointer;
 }
 .account-mode-copy button:hover{text-decoration:underline}
-.account-help-actions{
-  display:flex;
-  justify-content:center;
-  gap:12px;
-  flex-wrap:wrap;
-  margin:2px 0 0;
-}
-.account-help-actions[hidden]{display:none}
-.account-help-actions button{
-  border:0;
-  background:transparent;
-  color:#d8d5ce;
-  font:inherit;
-  font-size:12px;
-  font-weight:900;
-  padding:2px 0;
-}
-.account-help-actions button:hover{
-  color:var(--cream);
-  text-decoration:underline;
-}
 .account-profile{
   margin-top:18px;
   display:grid;
@@ -651,12 +669,33 @@ select option:checked,
   gap:10px;
   flex-wrap:wrap;
   justify-content:flex-end;
-  margin-top:6px;
+  margin-top:8px;
+}
+.account-actions .solid-btn,
+.account-actions .ghost-btn{
+  min-width:92px;
+}
+.account-actions .solid-btn{
+  box-shadow:0 16px 36px rgba(232,227,218,.12);
+}
+.account-actions .ghost-btn:hover{
+  border-color:rgba(232,227,218,.54);
+  background:rgba(232,227,218,.07);
 }
 .account-actions .danger-btn{
   box-shadow:0 14px 34px rgba(239,68,68,.2);
 }
 @media (max-width:520px){
+  .account-panel{
+    padding:22px;
+    border-radius:22px;
+  }
+  .account-copy h2{
+    font-size:30px;
+  }
+  .account-form{
+    grid-template-columns:1fr;
+  }
   .account-actions{
     flex-direction:column;
   }

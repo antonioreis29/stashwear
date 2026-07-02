@@ -162,14 +162,12 @@
       <form id="account-form" class="account-form" novalidate>
         <input id="account-name" type="text" autocomplete="nickname" placeholder="Nome de usuario" maxlength="32" hidden />
         <input id="account-email" type="email" autocomplete="email" placeholder="email@exemplo.com" required />
+        <input id="account-email-confirm" type="email" autocomplete="email" placeholder="Confirmar e-mail" hidden />
         <input id="account-password" type="password" autocomplete="current-password" placeholder="Senha" required />
+        <input id="account-password-confirm" type="password" autocomplete="new-password" placeholder="Confirmar senha" hidden />
         <div class="account-actions">
           <button id="btn-account-login" class="solid-btn" type="submit">Entrar</button>
           <button class="ghost-btn" type="button" data-account-action="close">Fechar</button>
-        </div>
-        <div id="account-help-actions" class="account-help-actions">
-          <button id="btn-account-recover" type="button">Esqueci minha senha</button>
-          <button id="btn-account-resend-confirmation" type="button">Reenviar confirmação</button>
         </div>
         <p id="account-mode-copy" class="account-mode-copy">
           <span id="account-mode-question">Ainda nao tem conta?</span>
