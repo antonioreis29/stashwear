@@ -319,6 +319,16 @@ function updatePasswordStrength() {
     panel.querySelector(`[data-password-rule="${key}"]`)?.classList.toggle('valid', Boolean(valid));
   });
 }
+function eyeIconHtml(isVisible = false) {
+  return isVisible
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.3 12s3.7-6.5 9.7-6.5S21.7 12 21.7 12s-3.7 6.5-9.7 6.5S2.3 12 2.3 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.4A10.5 10.5 0 0 1 12 4c5 0 8.5 4.2 9.7 6-.4.7-1.3 1.9-2.6 3.1"/><path d="M6.6 6.7C4.5 8 3.2 9.9 2.3 11.2c1.2 1.8 4.7 6 9.7 6 1.5 0 2.9-.4 4.1-1"/></svg>';
+}
+function setPasswordToggleState(button, isVisible) {
+  button.innerHTML = eyeIconHtml(isVisible);
+  button.setAttribute('aria-label', isVisible ? 'Ocultar senha' : 'Mostrar senha');
+  button.title = isVisible ? 'Ocultar senha' : 'Mostrar senha';
+}
 function validateAccountFields(mode, email, password, displayName = '', emailConfirm = '', passwordConfirm = '') {
   if (mode === 'reset') {
     const passwordMessage = validateStrongPassword(password);
@@ -421,9 +431,7 @@ async function refreshAccountUi() {
   document.querySelectorAll('[data-password-toggle]').forEach(button => {
     const target = document.getElementById(button.dataset.passwordToggle);
     if (!target) return;
-    button.textContent = 'Ver';
-    button.setAttribute('aria-label', target.id === 'account-password-confirm' ? 'Mostrar confirmacao de senha' : 'Mostrar senha');
-    button.title = 'Mostrar senha';
+    setPasswordToggleState(button, false);
   });
   updatePasswordStrength();
   if (loginBtn) loginBtn.hidden = isLoggedIn && !isResetting;
@@ -1375,9 +1383,7 @@ document.querySelectorAll('[data-password-toggle]').forEach(button => button.add
   if (!input) return;
   const isHidden = input.type === 'password';
   input.type = isHidden ? 'text' : 'password';
-  button.textContent = isHidden ? 'Ocultar' : 'Ver';
-  button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
-  button.title = isHidden ? 'Ocultar senha' : 'Mostrar senha';
+  setPasswordToggleState(button, isHidden);
   input.focus();
 }));
 document.getElementById('btn-account-mode-signup')?.addEventListener('click', () => {
