@@ -711,6 +711,13 @@ function hasPriceDrop(item) {
   if (current === null || !history.length) return false;
   return history.some(value => value > current);
 }
+function isOnSale(item) {
+  return Boolean(item.saleInfo?.onSale);
+}
+function saleBadgeText(item) {
+  const percent = Number(item.saleInfo?.discountPercent || 0);
+  return percent > 0 ? `Sale -${percent}%` : 'Sale';
+}
 function getCurationScore(item, allItems = state.items) {
   const price = parsePrice(item.price) || 0;
   const maxPrice = Math.max(1, ...allItems.map(i => parsePrice(i.price) || 0));
@@ -719,6 +726,7 @@ function getCurationScore(item, allItems = state.items) {
   if (getPriorityLevel(item) === 'alta') score += 40;
   if (getPriorityLevel(item) === 'avaliando') score += 16;
   if (hasPriceDrop(item)) score += 15;
+  if (isOnSale(item)) score += 12;
   if (isRecent(item)) score += 10;
   score += Math.round((price / maxPrice) * 20);
   return score;
@@ -842,9 +850,9 @@ function renderDecisions() {
   const el = document.getElementById('decisions-grid');
   if (!el) return;
   const openItems = state.items;
-  const buyNow = openItems.filter(item => getPriorityLevel(item) === 'alta' || hasPriceDrop(item));
+  const buyNow = openItems.filter(item => getPriorityLevel(item) === 'alta' || hasPriceDrop(item) || isOnSale(item));
   const reviewing = openItems.filter(item => getPriorityLevel(item) === 'avaliando');
-  const priceRadar = openItems.filter(hasPriceDrop);
+  const priceRadar = openItems.filter(item => hasPriceDrop(item) || isOnSale(item));
   const organize = getUnorganizedItems();
   const cards = [
     { key:'buy', label:'Comprar agora', value:buyNow.length, desc:'Prioridade alta ou preço em queda', items:buyNow, actionLabel:'Ver prioridades' },
@@ -912,10 +920,12 @@ function itemCardHtml(item, index, options = {}) {
   const price = parsePrice(item.price);
   const lowest = getLowestPrice(item);
   const dropped = hasPriceDrop(item);
+  const onSale = isOnSale(item);
   const nameClass = getNameSizeClass(item.name);
   return `<article class="item-card ${nameClass}" data-index="${index}">
     <div class="item-thumb">
       ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : '<div class="thumb-placeholder">◇</div>'}
+      ${onSale ? `<span class="sale-badge">${escapeHtml(saleBadgeText(item))}</span>` : ''}
       <button class="fav-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Favoritar">♥</button>
     </div>
     <div class="item-body">
@@ -923,6 +933,7 @@ function itemCardHtml(item, index, options = {}) {
       <div class="item-meta"><span class="item-store">${escapeHtml(item.store || item.category || 'Sem loja')}</span><span class="item-price">${escapeHtml(item.price || 'Sem preço')}</span></div>
       <div class="card-surface-row">
         <span class="piece-type">${escapeHtml(getItemType(item))}</span>
+        ${onSale ? `<span class="sale-pill">${escapeHtml(saleBadgeText(item))}</span>` : ''}
         ${dropped && lowest !== null && price !== null ? `<span class="price-drop-pill">Preço caiu</span>` : ''}
       </div>
       <div class="priority-toggle" aria-label="Prioridade da peça">
@@ -1274,7 +1285,7 @@ function renderAnalysis() {
   const cards = [
     ['Valor da coleção', formatPrice(totalValue), `${state.items.length} peça(s) salvas`],
     ['Prioridades ativas', pending.filter(i => getPriorityLevel(i)==='alta').length, `${pending.length} peça(s) em aberto`],
-    ['Quedas de preço', state.items.filter(hasPriceDrop).length, 'Peças abaixo de um preço anterior'],
+    ['Promoções', state.items.filter(item => hasPriceDrop(item) || isOnSale(item)).length, 'Peças em sale ou abaixo de um preço anterior'],
     ['Favoritas', state.items.filter(i => i.favorite).length, 'Peças especiais da coleção']
   ];
   document.getElementById('analysis-dashboard').innerHTML = cards.map(([label,value,desc]) => `<div class="analysis-card"><span>${label}</span><strong>${value}</strong><small>${desc}</small></div>`).join('') +

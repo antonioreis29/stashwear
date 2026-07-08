@@ -1062,6 +1062,62 @@ select option:checked,
   font-weight:950;
   white-space:nowrap;
 }
+.sale-badge{
+  position:absolute;
+  left:9px;
+  top:9px;
+  z-index:3;
+  border:1px solid rgba(255,255,255,.78);
+  border-radius:999px;
+  background:linear-gradient(180deg,#d82121,#a91414);
+  color:#fff;
+  padding:5px 7px;
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  font-weight:950;
+  box-shadow:0 10px 22px rgba(216,33,33,.25),0 1px 0 rgba(255,255,255,.18) inset;
+  animation:sale-pop .22s ease both;
+}
+.sale-pill{
+  border:1px solid rgba(255,255,255,.5);
+  border-radius:999px;
+  background:linear-gradient(180deg,#d82121,#a91414);
+  color:#fff;
+  padding:5px 8px;
+  font-size:10px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.item-thumb{position:relative}
+@keyframes sale-pop{from{opacity:0;transform:translateY(-4px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+.collection-grid .item-meta{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:3px;
+}
+.collection-grid .item-price{
+  order:-1;
+  font-size:15px;
+  line-height:1;
+  color:#f7f2ea;
+}
+.collection-grid .item-store{
+  order:1;
+  max-width:100%;
+  opacity:.78;
+}
+.collection-grid .card-surface-row{
+  justify-content:flex-start;
+  flex-wrap:wrap;
+}
+.collection-grid .price-drop-pill{
+  border-color:rgba(154,163,154,.48);
+  background:rgba(154,163,154,.14);
+  color:#dce8d7;
+}
 .collection-grid .priority-toggle,
 .collection-grid .card-controls{
   opacity:.18;
@@ -1452,6 +1508,18 @@ html[data-theme="light"] .profile-field input:focus{
 html[data-theme="light"] .item-card:hover{
   border-color:rgba(17,17,17,.34);
   box-shadow:0 20px 54px rgba(47,40,31,.18);
+}
+html[data-theme="light"] .sale-badge,
+html[data-theme="light"] .sale-pill{
+  background:linear-gradient(180deg,#b91c1c,#8f1212);
+  border-color:rgba(255,255,255,.85);
+  color:#fff;
+  box-shadow:0 10px 22px rgba(185,28,28,.18),0 1px 0 rgba(255,255,255,.22) inset;
+}
+html[data-theme="light"] .price-drop-pill{
+  border-color:rgba(90,112,80,.32);
+  background:rgba(90,112,80,.12);
+  color:#3f5438;
 }
 html[data-theme="light"] .account-backdrop,
 html[data-theme="light"] .tip-backdrop,

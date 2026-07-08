@@ -1,26 +1,42 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getPageImage' || request.action === 'scrapeProduct') {
-    StashWearScraper().scrapeProduct().then(data => {
+    getScraper().scrapeProduct().then(data => {
       sendResponse({ ...data, imageUrl: data.imageUrl || null });
     }).catch(() => sendResponse({ imageUrl: null, price: null, name: null }));
     return true;
   }
 });
 
+let stashWearScraperInstance = null;
+
+function getScraper() {
+  if (!stashWearScraperInstance) stashWearScraperInstance = StashWearScraper();
+  return stashWearScraperInstance;
+}
+
 (function initStashWearInlineSave() {
   if (window.__stashWearInlineSaveReady) return;
   window.__stashWearInlineSaveReady = true;
 
   const HOST_ID = 'stashwear-inline-save-host';
-  const storageGet = key => new Promise(resolve => chrome.storage.local.get(key, data => resolve(data[key] || [])));
-  const storageSet = (key, value) => new Promise(resolve => chrome.storage.local.set({ [key]: value }, resolve));
+  const storageGet = key => new Promise((resolve, reject) => {
+    chrome.storage.local.get(key, data => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(data[key] || []);
+    });
+  });
+  const storageSet = (key, value) => new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [key]: value }, () => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve();
+    });
+  });
   let currentProduct = null;
   let detectTimer = null;
   let lastUrl = location.href;
-
-  function escapeHtml(value) {
-    return String(value || '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
-  }
+  let lastDetectedUrl = '';
 
   function foldText(value) {
     return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -30,6 +46,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
   }
 
+  function normalizeComparableUrl(url) {
+    try {
+      const parsed = new URL(url);
+      const trackingParams = ['fbclid', 'gclid', 'gbraid', 'wbraid', 'mc_cid', 'mc_eid', 'ref', 'ref_src', 'spm'];
+      Array.from(parsed.searchParams.keys()).forEach(key => {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.startsWith('utm_') || trackingParams.includes(lowerKey)) {
+          parsed.searchParams.delete(key);
+        }
+      });
+      parsed.hash = '';
+      return parsed.href.replace(/\/$/, '');
+    } catch {
+      return String(url || '').split('#')[0].replace(/\/$/, '');
+    }
+  }
+
   function domainToName(domain) {
     if (!domain) return '';
     const part = domain.split('.').find(p => !['www','shop','loja','store'].includes(p)) || domain.split('.')[0];
@@ -37,7 +70,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   function isBlockedPage() {
-    return Boolean(globalThis.StashWearScraper?.().isBlockedPage?.());
+    return Boolean(getScraper().isBlockedPage?.());
   }
 
   function inferItemCategory(name = '', url = '') {
@@ -99,21 +132,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   async function saveDetectedProduct(product) {
     const items = await storageGet('items');
     const currentUrl = location.href;
+    const comparableUrl = normalizeComparableUrl(currentUrl);
     const domain = extractDomain(currentUrl);
     const storeName = domainToName(domain);
     const now = Date.now();
-    const existingIndex = items.findIndex(item => item.url === currentUrl);
+    const existingIndex = items.findIndex(item => normalizeComparableUrl(item.url) === comparableUrl);
     const name = product.name || document.title || 'Peca sem nome';
     const price = product.price || '';
+    const parsedPrice = parsePrice(price);
     const imageUrl = product.imageUrl || null;
+    const saleInfo = product.saleInfo || { onSale: false };
     const category = inferItemCategory(name, currentUrl);
 
     if (existingIndex >= 0) {
       const old = items[existingIndex];
       const history = priceHistory(old);
-      if (price && old.price && parsePrice(price) !== parsePrice(old.price)) {
+      const oldParsedPrice = parsePrice(old.price);
+      if (price && parsedPrice !== null && oldParsedPrice !== null && parsedPrice !== oldParsedPrice) {
         history.unshift({ price, checkedAt: now });
-      } else if (price && !history.length) {
+      } else if (price && parsedPrice !== null && !history.length) {
         history.unshift({ price, checkedAt: now });
       }
       items[existingIndex] = {
@@ -121,6 +158,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         name,
         imageUrl: imageUrl || old.imageUrl,
         price: price || old.price,
+        priceSource: product.priceSource || old.priceSource || '',
+        confidenceScore: product.confidenceScore ?? old.confidenceScore ?? null,
+        saleInfo: { ...(old.saleInfo || {}), ...saleInfo, currentPrice: price || saleInfo.currentPrice || old.price },
         store: storeName || old.store,
         category: category || old.category,
         priceHistory: history.slice(0, 40),
@@ -133,6 +173,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         url: currentUrl,
         imageUrl,
         price,
+        priceSource: product.priceSource || '',
+        confidenceScore: product.confidenceScore ?? null,
+        saleInfo: { ...saleInfo, currentPrice: price || saleInfo.currentPrice || null },
         store: storeName,
         category,
         priority: 'casual',
@@ -141,7 +184,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         favorite: false,
         curationPriority: 'avaliando',
         buyThisMonth: true,
-        priceHistory: price ? [{ price, checkedAt: now }] : [],
+        priceHistory: parsedPrice !== null ? [{ price, checkedAt: now }] : [],
         savedAt: now
       });
     }
@@ -171,18 +214,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         :host{all:initial}
         .wrap{position:fixed;right:22px;bottom:22px;z-index:2147483647;font-family:Inter,Arial,sans-serif;color:#f4f4f4}
         .fab{height:58px;border:1px solid rgba(232,227,218,.62);border-radius:999px;background:linear-gradient(180deg,#1d1d1c,#090909);color:#f4f4f4;box-shadow:0 24px 70px rgba(0,0,0,.56),0 0 0 6px rgba(232,227,218,.08);display:flex;align-items:center;gap:12px;padding:0 20px 0 14px;font-size:14px;font-weight:950;cursor:pointer;animation:stashwear-pop .42s ease both,stashwear-pulse 2.8s ease 1.1s 2}
+        .fab[aria-expanded="true"]{background:#e8e3da;color:#080808}
         .fab:hover{background:#e8e3da;color:#080808;transform:translateY(-2px)}
         .dot{width:34px;height:34px;border-radius:999px;background:#e8e3da;color:#080808;display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:900;line-height:1;box-shadow:0 10px 24px rgba(232,227,218,.22)}
+        .fab[aria-expanded="true"] .dot{background:#080808;color:#e8e3da}
         .fab:hover .dot{background:#080808;color:#e8e3da}
-        .panel{width:min(360px,calc(100vw - 36px));margin-bottom:12px;border:1px solid rgba(232,227,218,.38);border-radius:24px;background:linear-gradient(180deg,rgba(24,24,23,.99),rgba(10,10,10,.99));box-shadow:0 28px 90px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.05);overflow:hidden;display:none}
+        .panel{width:min(360px,calc(100vw - 36px));margin-bottom:12px;border:1px solid rgba(232,227,218,.38);border-radius:22px;background:linear-gradient(180deg,rgba(24,24,23,.99),rgba(10,10,10,.99));box-shadow:0 28px 90px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.05);overflow:hidden;display:none}
         .wrap.open .panel{display:block}
         .preview{display:grid;grid-template-columns:94px 1fr;gap:14px;padding:14px}
-        .thumb{width:94px;height:112px;border-radius:18px;background:#171717;overflow:hidden;border:1px solid rgba(255,255,255,.1)}
+        .thumb{width:94px;height:112px;border-radius:16px;background:#171717;overflow:hidden;border:1px solid rgba(255,255,255,.1);position:relative}
         .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+        .sale-badge{position:absolute;left:8px;top:8px;border:1px solid rgba(255,255,255,.78);border-radius:999px;background:linear-gradient(180deg,#d82121,#a91414);color:#fff;padding:4px 6px;font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-weight:950;box-shadow:0 9px 20px rgba(216,33,33,.24),0 1px 0 rgba(255,255,255,.18) inset;animation:sale-pop .22s ease both}
         .copy{min-width:0;padding-top:2px}
         .eyebrow{display:block;color:#e8e3da;font-size:9px;text-transform:uppercase;letter-spacing:.16em;font-weight:950}
         .name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:6px;color:#f4f4f4;font-size:14px;line-height:1.15;font-weight:900}
-        .price{display:block;margin-top:8px;color:#e8e3da;font-size:13px;font-weight:900}
+        .price{display:block;margin-top:9px;color:#fff;font-size:17px;line-height:1;font-weight:950}
         .actions{display:flex;gap:8px;padding:0 14px 14px}
         button{font:inherit}
         .save,.close{height:42px;border-radius:999px;padding:0 15px;font-size:12px;font-weight:950;cursor:pointer}
@@ -191,6 +237,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         .status{padding:0 14px 14px;color:#9a9a94;font-size:11px;line-height:1.35;display:none}
         .wrap.saved .status,.wrap.error .status{display:block}
         @keyframes stashwear-pop{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes sale-pop{from{opacity:0;transform:translateY(-4px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
         @keyframes stashwear-pulse{0%,100%{box-shadow:0 24px 70px rgba(0,0,0,.56),0 0 0 6px rgba(232,227,218,.08)}50%{box-shadow:0 24px 70px rgba(0,0,0,.56),0 0 0 12px rgba(232,227,218,.16)}}
         @media (max-width:520px){.wrap{right:12px;bottom:12px}.fab{height:54px;padding-right:16px}.label{display:inline}.panel{width:calc(100vw - 24px)}}
       </style>
@@ -210,9 +257,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           </div>
           <div class="status"></div>
         </div>
-        <button class="fab" type="button" aria-label="Salvar no StashWear"><span class="dot">+</span><span class="label">Salvar no StashWear</span></button>
+        <button class="fab" type="button" aria-label="Salvar no StashWear" aria-expanded="false" aria-controls="stashwear-inline-save-panel"><span class="dot">+</span><span class="label">Salvar no StashWear</span></button>
       </div>
     `;
+    host.shadowRoot.querySelector('.panel').id = 'stashwear-inline-save-panel';
+    host.shadowRoot.querySelector('.panel').setAttribute('role', 'dialog');
+    host.shadowRoot.querySelector('.panel').setAttribute('aria-label', 'Salvar peca no StashWear');
+    host.shadowRoot.querySelector('.status').setAttribute('aria-live', 'polite');
     bindHostEvents(host);
     return host;
   }
@@ -220,13 +271,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   function bindHostEvents(host) {
     const root = host.shadowRoot;
     const wrap = root.querySelector('.wrap');
-    root.querySelector('.fab').addEventListener('click', () => {
+    const fab = root.querySelector('.fab');
+    fab.addEventListener('click', () => {
       wrap.classList.toggle('open');
+      fab.setAttribute('aria-expanded', String(wrap.classList.contains('open')));
       wrap.classList.remove('saved', 'error');
       renderProduct(currentProduct);
     });
     root.querySelector('.close').addEventListener('click', () => {
       wrap.classList.remove('open', 'saved', 'error');
+      fab.setAttribute('aria-expanded', 'false');
     });
     root.querySelector('.save').addEventListener('click', async () => {
       if (!currentProduct) return;
@@ -240,7 +294,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         wrap.classList.add('saved');
         status.textContent = updated ? 'Peca atualizada na sua colecao.' : 'Peca salva na sua colecao.';
         button.textContent = updated ? 'Atualizada' : 'Salva';
-        setTimeout(() => wrap.classList.remove('open'), 1600);
+        setTimeout(() => {
+          wrap.classList.remove('open');
+          fab.setAttribute('aria-expanded', 'false');
+        }, 1600);
       } catch {
         wrap.classList.add('error');
         status.textContent = 'Nao foi possivel salvar agora. Tente pelo popup do StashWear.';
@@ -256,7 +313,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const root = host.shadowRoot;
     root.querySelector('.name').textContent = product?.name || 'Peca detectada';
     root.querySelector('.price').textContent = product?.price || 'Preco detectado';
-    root.querySelector('.thumb').innerHTML = product?.imageUrl ? `<img src="${escapeHtml(product.imageUrl)}" alt="">` : '';
+    const thumb = root.querySelector('.thumb');
+    thumb.replaceChildren();
+    if (product?.imageUrl) {
+      const img = document.createElement('img');
+      img.src = product.imageUrl;
+      img.alt = '';
+      thumb.appendChild(img);
+    }
+    if (product?.saleInfo?.onSale) {
+      const badge = document.createElement('span');
+      badge.className = 'sale-badge';
+      badge.textContent = product.saleInfo.discountPercent ? `Sale -${product.saleInfo.discountPercent}%` : 'Sale';
+      thumb.style.position = 'relative';
+      thumb.appendChild(badge);
+    }
     root.querySelector('.save').textContent = 'Salvar no StashWear';
     root.querySelector('.save').disabled = false;
     root.querySelector('.status').textContent = '';
@@ -265,6 +336,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   function removeHost() {
     document.getElementById(HOST_ID)?.remove();
+    lastDetectedUrl = '';
   }
 
   async function detectProductSoon(delay = 500) {
@@ -277,9 +349,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
       try {
-        const product = await StashWearScraper().scrapeProduct();
+        const product = await getScraper().scrapeProduct();
         if (product?.isProductPage && product?.isFashion) {
           currentProduct = product;
+          lastDetectedUrl = location.href;
           renderProduct(product);
         } else {
           currentProduct = null;
@@ -302,7 +375,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       detectProductSoon(900);
       return;
     }
-    if (!currentProduct) detectProductSoon(1200);
+    if (!currentProduct || lastDetectedUrl !== location.href) detectProductSoon(1200);
   });
 
   observer.observe(document.documentElement, { childList: true, subtree: true });

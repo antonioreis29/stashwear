@@ -86,6 +86,13 @@ h1{margin:0;font-size:22px;line-height:.9;font-weight:900;letter-spacing:-.07em}
 .btn-fav.active{background:#fff;color:#080808;border-color:#fff}
 .badge-light{background:#fff!important;color:#080808!important;border-color:#fff!important}
 .badge-alert{background:#e8e8e8!important;color:#080808!important;border-color:#fff!important;font-weight:900}
+.badge-sale{background:linear-gradient(180deg,#d82121,#a91414)!important;color:#fff!important;border-color:rgba(255,255,255,.62)!important;font-weight:950;text-transform:uppercase;letter-spacing:.08em}
+.sale-badge{position:absolute;left:8px;top:8px;z-index:2;border:1px solid rgba(255,255,255,.78);border-radius:999px;background:linear-gradient(180deg,#d82121,#a91414);color:#fff;padding:4px 6px;font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-weight:950;box-shadow:0 9px 20px rgba(216,33,33,.24),0 1px 0 rgba(255,255,255,.18) inset;animation:sale-pop .22s ease both}
+.item-thumb{position:relative}
+@keyframes sale-pop{from{opacity:0;transform:translateY(-4px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+.item-meta{flex-direction:column;align-items:flex-start;gap:3px}
+.item-price{order:-1;font-size:13px;line-height:1;color:#fff}
+.item-store-tag{order:1;max-width:100%;opacity:.78}
 .price-alert-line,.price-history-line{margin-top:7px;font-size:9px;color:#d8d8d8;line-height:1.25;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:5px 6px;background:rgba(255,255,255,.025)}
 .price-alert-line{color:#fff;font-weight:850}
 .tag-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.tag-list span,.tag-pill{border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);color:#dcdcdc;font-size:8px;padding:4px 6px}.tag-pill{font-size:10px;padding:7px 9px}.tag-pill b{color:#fff;margin-left:4px}.tags-grid{display:flex;gap:7px;flex-wrap:wrap;min-height:42px}.shopping-list{display:grid;grid-template-columns:1fr;gap:10px}.shopping-card .card-inner{display:grid;grid-template-columns:105px 1fr}.shopping-card .item-thumb{height:100%;min-height:142px}.shopping-card .item-actions{grid-template-columns:1fr 1fr}.compact-panel{padding-bottom:14px}.price-range{display:block;margin-top:7px;color:#aaa;font-size:10px;line-height:1.25}.analysis-card strong{word-break:break-word}.btn-buy-month.active{background:#fff!important;color:#080808!important}.item-card .item-actions{grid-template-columns:1fr 1fr}
@@ -379,4 +386,16 @@ html[data-theme="light"] .item-card:hover{
 }
 html[data-theme="light"] .onboarding-overlay{
   background:rgba(246,243,238,.76);
+}
+html[data-theme="light"] .badge-sale,
+html[data-theme="light"] .sale-badge{
+  background:linear-gradient(180deg,#b91c1c,#8f1212)!important;
+  border-color:rgba(255,255,255,.85)!important;
+  color:#fff!important;
+  box-shadow:0 9px 20px rgba(185,28,28,.18),0 1px 0 rgba(255,255,255,.22) inset;
+}
+html[data-theme="light"] .badge-alert{
+  background:rgba(90,112,80,.13)!important;
+  border-color:rgba(90,112,80,.28)!important;
+  color:#3f5438!important;
 }

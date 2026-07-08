@@ -21,6 +21,22 @@ function StashWearScraper() {
     return price.replace(/^BRL\s*/i, 'R$ ');
   }
 
+  function parsePrice(str) {
+    if (!str) return null;
+    let raw = String(str).replace(/[^\d,.]/g, '');
+    if (!raw) return null;
+    const lastComma = raw.lastIndexOf(',');
+    const lastDot = raw.lastIndexOf('.');
+    if (lastComma > lastDot) raw = raw.replace(/\./g, '').replace(',', '.');
+    else raw = raw.replace(/,/g, '');
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function formatPrice(n) {
+    return 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   function metaContent(selectors) {
     for (const selector of selectors) {
       const el = document.querySelector(selector);
@@ -38,6 +54,59 @@ function StashWearScraper() {
     return selectors.some(selector => Array.from(document.querySelectorAll(selector)).slice(0, 60).some(el => pattern.test(cleanText(el.textContent || el.getAttribute('aria-label') || el.value || ''))));
   }
 
+  function getPriceCandidatesFromText(text) {
+    const source = cleanText(text);
+    const pattern = /(?:R\$|BRL|US\$|USD|\u20ac|\u00a3)?\s*\d{1,3}(?:[\.\s]\d{3})*(?:,\d{2})|(?:R\$|BRL|US\$|USD|\u20ac|\u00a3)?\s*\d+(?:[\.,]\d{2})/gi;
+    return Array.from(source.matchAll(pattern))
+      .map(match => normalizePrice(match[0]))
+      .filter(Boolean)
+      .map(price => ({ price, value: parsePrice(price) }))
+      .filter(candidate => candidate.value !== null);
+  }
+
+  function detectSaleInfo(price, sourceText = '') {
+    const current = parsePrice(price);
+    const text = cleanText(sourceText);
+    const candidates = getPriceCandidatesFromText(text);
+    const higher = candidates
+      .filter(candidate => current !== null && candidate.value > current * 1.08)
+      .sort((a, b) => b.value - a.value)[0];
+    const saleWords = /\b(sale|promo|promocao|promoção|off|desconto|liquidacao|liquidação|de\s+r\$|preco\s+original|preço\s+original)\b/i.test(text);
+    const percentMatch = text.match(/(\d{1,2})\s*%/);
+    const discountPercent = higher && current !== null
+      ? Math.round(((higher.value - current) / higher.value) * 100)
+      : (percentMatch ? Number(percentMatch[1]) : null);
+
+    return {
+      onSale: Boolean(saleWords || higher || (discountPercent && discountPercent >= 5)),
+      originalPrice: higher?.price || null,
+      currentPrice: price || null,
+      discountPercent: discountPercent && discountPercent > 0 ? discountPercent : null
+    };
+  }
+
+  function countProductLikeElements() {
+    const productSchemaNodes = Array.from(document.querySelectorAll('[itemtype*="schema.org/Product" i]')).length;
+    const productLinks = new Set(
+      Array.from(document.querySelectorAll('a[href]'))
+        .map(a => absoluteUrl(a.getAttribute('href') || ''))
+        .filter(href => /\/(?:p|produto|product|products|item|itens?)\/|[?&](?:sku|productId|pid|variant)=/i.test(href || ''))
+    ).size;
+    const buyButtons = Array.from(document.querySelectorAll('button, a, input[type="submit"], [role="button"]'))
+      .filter(el => /\b(comprar|adicionar|add to cart|buy now|colocar no carrinho|adicionar ao carrinho)\b/i.test(cleanText(el.textContent || el.getAttribute('aria-label') || el.value || '')))
+      .length;
+    const productCards = Array.from(document.querySelectorAll(
+      '[class*="product" i], [class*="produto" i], [data-testid*="product" i], [data-test*="product" i], [data-cy*="product" i], [itemtype*="schema.org/Product" i]'
+    ))
+      .filter(el => {
+        const text = cleanText(el.textContent).slice(0, 500);
+        return normalizePrice(text) && (el.querySelector('img') || el.querySelector('a[href]'));
+      })
+      .length;
+
+    return Math.max(productSchemaNodes, productLinks, buyButtons, productCards);
+  }
+
   function isBlockedPage() {
     const host = location.hostname.replace(/^www\./, '').toLowerCase();
     const path = location.pathname.toLowerCase();
@@ -47,6 +116,10 @@ function StashWearScraper() {
       'youtube.com',
       'youtu.be',
       'music.youtube.com',
+      'spotify.com',
+      'open.spotify.com',
+      'soundcloud.com',
+      'deezer.com',
       'vimeo.com',
       'tiktok.com',
       'instagram.com',
@@ -70,7 +143,7 @@ function StashWearScraper() {
     return blockedHost || blockedPath;
   }
 
-  function productPageSignals(name, price, imageUrl) {
+  function productPageSignals(name, price, imageUrl, priceSource, saleInfo) {
     const fold = value => cleanText(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const path = fold(location.pathname);
     const title = fold(document.title);
@@ -92,22 +165,39 @@ function StashWearScraper() {
     const buyButton = hasTextMatch('button, a, input[type="submit"], [role="button"]'.split(', '), /\b(comprar|adicionar|add to cart|buy now|colocar no carrinho|adicionar ao carrinho)\b/i);
     const skuText = /\b(sku|ref(?:erencia)?|codigo do produto|product code)\b/i.test(fold(document.body?.innerText || '').slice(0, 120000));
     const productUrl = /\/(?:p|produto|product|products|item|itens?)\/|[?&](?:sku|productId|pid|variant)=/i.test(location.href);
+    const productLikeCount = countProductLikeElements();
+    const manyProducts = productLikeCount >= 4;
     const score = [productSchema, productMeta, buyButton, skuText, productUrl].filter(Boolean).length;
     const hasCoreData = Boolean(name && price && imageUrl);
+    const confidenceScore = Math.max(0,
+      (productSchema ? 3 : 0) +
+      (productMeta ? 3 : 0) +
+      (buyButton ? 2 : 0) +
+      (skuText ? 2 : 0) +
+      (productUrl ? 2 : 0) +
+      (imageUrl ? 1 : 0) +
+      (priceSource === 'meta' ? 2 : priceSource === 'selector' ? 1 : 0) +
+      (saleInfo?.onSale ? 1 : 0) -
+      (negativeUrl || negativeTitle ? 2 : 0)
+    );
     const isLandingLike = negativeUrl || negativeTitle;
     const hasProductEvidence = productMeta || productSchema || productUrl || skuText || buyButton;
-    const isProductPage = hasCoreData && hasProductEvidence && !(isLandingLike && !productMeta && !productSchema && !productUrl && !skuText);
+    const isListingLike = manyProducts && isLandingLike && !productMeta && !productSchema && !skuText && !productUrl;
+    const isProductPage = hasCoreData && hasProductEvidence && confidenceScore >= 5 && !isListingLike && !(isLandingLike && !productMeta && !productSchema && !productUrl && !skuText);
     let validationReason = 'ok';
     if (!name) validationReason = 'missing_name';
     else if (!price) validationReason = 'missing_price';
     else if (!imageUrl) validationReason = 'missing_image';
+    else if (isListingLike) validationReason = 'listing_or_multiple_products';
+    else if (confidenceScore < 5) validationReason = 'low_confidence';
     else if (!hasProductEvidence) validationReason = 'missing_product_signal';
     else if (isLandingLike && !productMeta && !productSchema && !productUrl && !skuText) validationReason = 'landing_or_category';
 
     return {
       isProductPage,
       validationReason,
-      productSignals: { productSchema, productMeta, buyButton, skuText, productUrl, negativeUrl, negativeTitle, score }
+      confidenceScore,
+      productSignals: { productSchema, productMeta, buyButton, skuText, productUrl, negativeUrl, negativeTitle, productLikeCount, manyProducts, score }
     };
   }
 
@@ -134,7 +224,7 @@ function StashWearScraper() {
       cleanText(document.body?.innerText || '').slice(0, 22000)
     ].join(' '));
 
-    const hardBlockPattern = /\b(carregador|cabo|fonte|usb|tipo[\s-]*c|type[\s-]*c|xiaomi|iphone|android|celular|smartphone|charger|cable|adapter|power[\s-]*supply)\b/i;
+    const hardBlockPattern = /\b(carregador|cabo|fonte|usb|tipo[\s-]*c|type[\s-]*c|xiaomi|iphone|android|celular|smartphone|charger|cable|adapter|power[\s-]*supply|spotify|playlist|musica|música|album|álbum|artista|podcast|song|track|artist)\b/i;
     if (hardBlockPattern.test(primaryText)) {
       return {
         isFashion: false,
@@ -143,7 +233,7 @@ function StashWearScraper() {
     }
 
     const fashionPattern = /\b(moda|roupa|look|vestuario|calcado|calcados|tenis|sneaker|sapato|bota|sandalia|chinelo|salto|camisa|camiseta|blusa|body|cropped|regata|polo|moletom|casaco|jaqueta|blazer|cardigan|tricot|sueter|calca|jeans|bermuda|short|shorts|saia|vestido|macacao|lingerie|cueca|sutia|biquini|maio|bolsa|mochila|carteira|cinto|bone|chapeu|oculos|relogio|colar|brinco|pulseira|anel|meia|acessorio|acessorios|fashion|clothing|apparel|wear|wearing|shoes|sneakers|shirt|t-shirt|tee|pants|jeans|shorts|jacket|coat|dress|skirt|bag|handbag|backpack|belt|cap|hat|sunglasses|watch|jewelry|jewellery)\b/gi;
-    const nonFashionPattern = /\b(notebook|laptop|tablet|monitor|televisao|tv|geladeira|fogao|microondas|air fryer|camera|console|playstation|xbox|livro|ebook|curso|software|ferramenta|parafusadeira|furadeira|pneu|peca automotiva|suplemento|whey|remedio|medicamento|shampoo|perfume|creme|maquiagem|brinquedo|movel|sofa|mesa|cadeira|colchao|eletrodomestico|eletronico|electronics|appliance|furniture|book|toy|makeup|skincare|supplement)\b/gi;
+    const nonFashionPattern = /\b(notebook|laptop|tablet|monitor|televisao|tv|geladeira|fogao|microondas|air fryer|camera|console|playstation|xbox|livro|ebook|curso|software|ferramenta|parafusadeira|furadeira|pneu|peca automotiva|suplemento|whey|remedio|medicamento|shampoo|perfume|creme|maquiagem|brinquedo|movel|sofa|mesa|cadeira|colchao|eletrodomestico|eletronico|musica|música|playlist|album|álbum|artista|podcast|electronics|appliance|furniture|book|toy|makeup|skincare|supplement|music|song|track|artist)\b/gi;
     const primaryPositiveMatches = (primaryText.match(fashionPattern) || []).length;
     const positiveMatches = (focusedText.match(fashionPattern) || []).length;
     const primaryNegativeMatches = (primaryText.match(nonFashionPattern) || []).length;
@@ -180,7 +270,7 @@ function StashWearScraper() {
       'meta[name="twitter:data1"]'
     ]);
     const normalizedMeta = normalizePrice(meta);
-    if (normalizedMeta) return normalizedMeta;
+    if (normalizedMeta) return { price: normalizedMeta, source: 'meta', saleInfo: detectSaleInfo(normalizedMeta, meta) };
 
     const selectors = [
       '[itemprop="price"]',
@@ -201,12 +291,11 @@ function StashWearScraper() {
       for (const node of nodes) {
         const text = cleanText(node.getAttribute('content') || node.getAttribute('aria-label') || node.textContent);
         const price = normalizePrice(text);
-        if (price) return price;
+        if (price) return { price, source: 'selector', saleInfo: detectSaleInfo(price, text) };
       }
     }
 
-    const bodyText = cleanText(document.body?.innerText || '');
-    return normalizePrice(bodyText);
+    return { price: null, source: 'none', saleInfo: { onSale: false, originalPrice: null, currentPrice: null, discountPercent: null } };
   }
 
   function findImageUrl() {
@@ -263,13 +352,16 @@ function StashWearScraper() {
     const imageOriginal = findImageUrl();
     const imageBase64 = await toBase64(imageOriginal);
     const name = findName();
-    const price = findPrice();
+    const priceResult = findPrice();
+    const price = priceResult.price;
     const imageUrl = imageBase64 || imageOriginal || null;
-    const validation = productPageSignals(name, price, imageUrl);
+    const validation = productPageSignals(name, price, imageUrl, priceResult.source, priceResult.saleInfo);
     const fashion = fashionSignals(name);
     return {
       name,
       price,
+      priceSource: priceResult.source,
+      saleInfo: priceResult.saleInfo,
       imageUrl,
       ...fashion,
       ...validation

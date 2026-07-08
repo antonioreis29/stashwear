@@ -176,6 +176,13 @@ function hasPriceDrop(item) {
   const high = getHighestPrice(item);
   return current !== null && high !== null && current < high;
 }
+function isOnSale(item) {
+  return Boolean(item.saleInfo?.onSale);
+}
+function saleBadgeText(item) {
+  const percent = Number(item.saleInfo?.discountPercent || 0);
+  return percent > 0 ? `Sale -${percent}%` : 'Sale';
+}
 function isRecentlySaved(item) {
   const savedAt = Number(item.savedAt || item.updatedAt || 0);
   return savedAt && Date.now() - savedAt <= 7 * 24 * 60 * 60 * 1000;
@@ -218,7 +225,9 @@ function productValidationMessage(reason) {
   const messages = {
     blocked_page: 'O StashWear fica inativo em paginas de video, redes sociais, ferramentas internas e checkout.',
     not_fashion: 'Esta pagina nao parece ser de uma peca ou acessorio de moda.',
+    listing_or_multiple_products: 'Esta pagina mostra varios produtos. Abra a pagina individual da peca para salvar.',
     landing_or_category: 'Esta parece ser uma pagina inicial, categoria, busca ou promocao. Abra a pagina individual da peca para salvar.',
+    low_confidence: 'Encontrei poucos sinais confiaveis de produto nesta pagina. Abra a pagina individual da peca.',
     missing_price: 'Nao encontrei o preco da peca nesta pagina. Abra a pagina individual do produto ou confira se o preco carregou.',
     missing_image: 'Nao encontrei uma imagem principal da peca. Abra a pagina individual do produto e tente novamente.',
     missing_name: 'Nao encontrei o nome da peca nesta pagina.',
@@ -286,6 +295,7 @@ function renderSavePreview(tab, data = {}) {
   const category = data.category || inferItemCategory(data.name || tab?.title || '', currentUrl);
   const name = data.name || tab?.title || 'Peca detectada';
   const price = data.price || '';
+  const saleText = data.saleInfo?.onSale ? ` · ${saleBadgeText(data)}` : '';
 
   setFieldValue('item-name', name);
   setFieldValue('item-price', price);
@@ -299,7 +309,7 @@ function renderSavePreview(tab, data = {}) {
   const categoryEl = document.getElementById('preview-category');
   const thumb = document.querySelector('#auto-detect-preview .preview-thumb');
   if (nameEl) nameEl.textContent = name;
-  if (priceEl) priceEl.textContent = price || 'Sem preco detectado';
+  if (priceEl) priceEl.textContent = price ? `${price}${saleText}` : 'Sem preco detectado';
   if (storeEl) storeEl.textContent = storeName;
   if (categoryEl) categoryEl.textContent = category;
   if (thumb) {
@@ -313,11 +323,11 @@ async function renderFilterBar() {
   const bar = document.getElementById('filter-bar');
   const counts = {};
   items.forEach(i => { const c = i.category || 'Outro'; counts[c] = (counts[c] || 0) + 1; });
-  const categories = ['Todos', 'Favoritas', 'Com queda', ...Object.keys(counts)];
+  const categories = ['Todos', 'Favoritas', 'Em sale', 'Com queda', ...Object.keys(counts)];
   bar.innerHTML = '';
   bar.style.display = items.length ? 'flex' : 'none';
   categories.forEach(cat => {
-    let count = cat === 'Todos' ? items.length : cat === 'Favoritas' ? items.filter(i => i.favorite).length : cat === 'Com queda' ? items.filter(hasPriceDrop).length : counts[cat];
+    let count = cat === 'Todos' ? items.length : cat === 'Favoritas' ? items.filter(i => i.favorite).length : cat === 'Em sale' ? items.filter(isOnSale).length : cat === 'Com queda' ? items.filter(hasPriceDrop).length : counts[cat];
     if (!count && cat !== 'Todos') return;
     const chip = document.createElement('button');
     chip.className = 'filter-chip' + (cat === activeFilter ? ' active' : '');
@@ -341,10 +351,10 @@ async function renderToolbar(visibleItems) {
   } else totalBox.innerHTML = `${pending.length} peça${pending.length !== 1 ? 's' : ''} para comprar`;
 
   const alertEl = document.getElementById('stash-alert');
-  const reached = allItems.filter(hasPriceDrop);
+  const reached = allItems.filter(item => hasPriceDrop(item) || isOnSale(item));
   if (reached.length) {
     alertEl.style.display = 'block';
-    alertEl.textContent = `Queda de preço: ${reached.length} peça${reached.length > 1 ? 's ficaram' : ' ficou'} mais barata.`;
+    alertEl.textContent = `Oportunidade: ${reached.length} peça${reached.length > 1 ? 's estão' : ' está'} em sale ou com preço menor.`;
   } else {
     alertEl.style.display = 'none';
   }
@@ -373,6 +383,7 @@ async function renderFeaturedPiece() {
   const reasons = [];
   if (featured.favorite) reasons.push('favorita');
   if (getPriorityLevel(featured) === 'alta') reasons.push('prioridade alta');
+  if (isOnSale(featured)) reasons.push('em sale');
   if (hasPriceDrop(featured)) reasons.push('preço caiu');
   if (isRecentlySaved(featured)) reasons.push('salva recentemente');
   const reasonText = reasons.length ? reasons.join(' · ') : 'melhor equilíbrio da coleção';
@@ -389,6 +400,7 @@ async function renderFeaturedPiece() {
             ${featured.price ? `<span>${escapeHtml(featured.price)}</span>` : ''}
             <span>${getPriorityLabel(featured)}</span>
             ${featured.favorite ? `<span>Favorita</span>` : ''}
+            ${isOnSale(featured) ? `<span>${escapeHtml(saleBadgeText(featured))}</span>` : ''}
             ${hasPriceDrop(featured) ? `<span>Preço caiu</span>` : ''}
           </div>
           <small class="price-range">Pontuação ${score} · ${escapeHtml(reasonText)}</small>
@@ -450,7 +462,7 @@ async function renderCollectionIntelligence() {
   const avg = prices.length ? total / prices.length : 0;
   const favCategory = topEntries(items, 'category', 1)[0];
   const brands = topEntries(items, 'store', 5);
-  const dropCount = items.filter(hasPriceDrop).length;
+  const dropCount = items.filter(item => hasPriceDrop(item) || isOnSale(item)).length;
   const priorityCount = items.filter(i => getPriorityLevel(i) !== 'inspiracional').length;
   const highPriorityCount = items.filter(i => getPriorityLevel(i) === 'alta').length;
   const favoriteCount = items.filter(i => i.favorite).length;
@@ -459,7 +471,7 @@ async function renderCollectionIntelligence() {
   grid.innerHTML = `
     <article class="analysis-card"><span>Valor da coleção</span><strong>${prices.length ? formatPrice(total) : '—'}</strong><small>${pending.length} peça${pending.length !== 1 ? 's' : ''} ativa${pending.length !== 1 ? 's' : ''}.</small></article>
     <article class="analysis-card"><span>Média por peça</span><strong>${avg ? formatPrice(avg) : '—'}</strong><small>Preço médio das peças capturadas.</small></article>
-    <article class="analysis-card"><span>Quedas de preço</span><strong>${dropCount}</strong><small>${dropCount ? 'Há peça mais barata que antes.' : 'Nenhuma queda registrada agora.'}</small></article>
+    <article class="analysis-card"><span>Promoções</span><strong>${dropCount}</strong><small>${dropCount ? 'Há peça em sale ou mais barata que antes.' : 'Nenhuma promoção registrada agora.'}</small></article>
     <article class="analysis-card"><span>Prioridades</span><strong>${priorityCount}</strong><small>${highPriorityCount} em prioridade alta.</small></article>
     <article class="analysis-card"><span>Favoritas</span><strong>${favoriteCount}</strong><small>Peças destacadas na coleção.</small></article>
     <article class="analysis-card"><span>Histórico de preço</span><strong>${historyCount}</strong><small>Registros salvos ao atualizar peças já existentes.</small></article>
@@ -477,11 +489,13 @@ function itemCardHtml(item, realIndex, compact = false) {
   const low = getLowestPrice(item);
   const high = getHighestPrice(item);
   const priceDropped = hasPriceDrop(item);
+  const onSale = isOnSale(item);
   return `
     <div class="card-inner">
       <div class="item-thumb">
         ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>` : ''}
         <div class="thumb-placeholder" style="${item.imageUrl ? 'display:none' : ''}">◇</div>
+        ${onSale ? `<span class="sale-badge">${escapeHtml(saleBadgeText(item))}</span>` : ''}
       </div>
       <div class="card-body">
         <div class="item-top">
@@ -489,6 +503,7 @@ function itemCardHtml(item, realIndex, compact = false) {
           <div class="item-badges">
             <span class="badge badge-light">${getPriorityLabel(item)}</span>
             ${item.category ? `<span class="badge">${escapeHtml(item.category)}</span>` : ''}
+            ${onSale ? `<span class="badge badge-sale">${escapeHtml(saleBadgeText(item))}</span>` : ''}
             ${priceDropped ? `<span class="badge badge-alert">Preço caiu</span>` : ''}
           </div>
         </div>
@@ -540,6 +555,7 @@ async function renderItems() {
   const list = document.getElementById('items-list');
   const allItems = items;
   if (activeFilter === 'Favoritas') items = items.filter(i => i.favorite);
+  else if (activeFilter === 'Em sale') items = items.filter(isOnSale);
   else if (activeFilter === 'Com queda') items = items.filter(hasPriceDrop);
   else if (activeFilter !== 'Todos') items = items.filter(i => (i.category || 'Outro') === activeFilter);
   items = sortItems(items);
@@ -653,6 +669,7 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
     const name = typedName || data?.name || tab?.title || 'Peça sem nome';
     const price = typedPrice || data?.price || '';
     const imageUrl = data?.imageUrl || null;
+    const saleInfo = data?.saleInfo || { onSale: false };
     const selectedStore = document.getElementById('item-store').value;
     const domain = extractDomain(currentUrl);
     const storeName = selectedStore || domainToName(domain) || '';
@@ -674,6 +691,9 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
         name,
         imageUrl: imageUrl || old.imageUrl,
         price: price || old.price,
+        priceSource: data?.priceSource || old.priceSource || '',
+        confidenceScore: data?.confidenceScore ?? old.confidenceScore ?? null,
+        saleInfo: { ...(old.saleInfo || {}), ...saleInfo, currentPrice: price || saleInfo.currentPrice || old.price },
         store: storeName || old.store,
         category: detectedCategory || old.category,
         priority: document.getElementById('item-priority').value || old.priority,
@@ -688,6 +708,9 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
     } else {
       items.unshift({
         name, url: currentUrl, imageUrl, price, store: storeName,
+        priceSource: data?.priceSource || '',
+        confidenceScore: data?.confidenceScore ?? null,
+        saleInfo: { ...saleInfo, currentPrice: price || saleInfo.currentPrice || null },
         category: detectedCategory,
         priority: document.getElementById('item-priority').value,
         note: document.getElementById('item-note').value.trim(),

@@ -185,6 +185,77 @@ function normalizePrice(raw) {
   return price.replace(/^BRL\s*/i, 'R$ ');
 }
 
+function detectSaleInfo(price, text = '') {
+  const current = parsePrice(price);
+  const source = cleanText(text);
+  const candidates = collectPriceCandidates(source)
+    .map(candidate => ({ price: candidate, value: parsePrice(candidate) }))
+    .filter(candidate => current !== null && candidate.value !== null && candidate.value > current * 1.08)
+    .sort((a, b) => b.value - a.value);
+  const original = candidates[0] || null;
+  const saleWords = /\b(sale|promo|promocao|promoção|off|desconto|liquidacao|liquidação|preco\s+original|preço\s+original)\b/i.test(source);
+  const percentMatch = source.match(/(\d{1,2})\s*%/);
+  const discountPercent = original && current !== null
+    ? Math.round(((original.value - current) / original.value) * 100)
+    : (percentMatch ? Number(percentMatch[1]) : null);
+  return {
+    onSale: Boolean(saleWords || original || (discountPercent && discountPercent >= 5)),
+    originalPrice: original?.price || null,
+    currentPrice: price || null,
+    discountPercent: discountPercent && discountPercent > 0 ? discountPercent : null
+  };
+}
+
+function isLikelyAuxiliaryPriceContext(text) {
+  const value = cleanText(text).toLowerCase();
+  return /\b(?:\d+\s*x|x\s*de|parcela|parcelas|sem juros|juros|frete|cashback|cupom)\b/i.test(value);
+}
+
+function collectPriceCandidates(text) {
+  const source = cleanText(text);
+  const pattern = /(?:R\$|BRL|US\$|USD|€|£)?\s*\d{1,3}(?:[\.\s]\d{3})*(?:,\d{2})|(?:R\$|BRL|US\$|USD|€|£)?\s*\d+(?:[\.,]\d{2})/gi;
+  const candidates = [];
+  let match;
+  while ((match = pattern.exec(source))) {
+    const context = source.slice(Math.max(0, match.index - 80), match.index + match[0].length + 80);
+    if (isLikelyAuxiliaryPriceContext(context)) continue;
+    const price = normalizePrice(match[0]);
+    if (price && parsePrice(price) !== null) candidates.push(price);
+  }
+  return candidates;
+}
+
+function findOfferPrice(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const price = findOfferPrice(item);
+      if (price) return price;
+    }
+    return null;
+  }
+
+  const type = Array.isArray(value['@type']) ? value['@type'].join(' ') : String(value['@type'] || '');
+  if (/offer|aggregateoffer|product/i.test(type)) {
+    const direct = normalizePrice(value.price || value.lowPrice || value.salePrice || value.offerPrice);
+    if (direct) return direct;
+  }
+
+  return findOfferPrice(value.offers || value.aggregateOffer);
+}
+
+function extractJsonLdPrice(html) {
+  const scripts = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || [];
+  for (const script of scripts) {
+    const json = script.replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '').trim();
+    try {
+      const price = findOfferPrice(JSON.parse(json));
+      if (price) return price;
+    } catch {}
+  }
+  return null;
+}
+
 function readMetaContent(html, keys) {
   for (const key of keys) {
     const attr = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -197,6 +268,9 @@ function readMetaContent(html, keys) {
 }
 
 function extractPriceFromHtml(html) {
+  const jsonLdPrice = extractJsonLdPrice(html);
+  if (jsonLdPrice) return { price: jsonLdPrice, saleInfo: detectSaleInfo(jsonLdPrice, html.slice(0, 250000)), priceSource: 'jsonld' };
+
   const meta = readMetaContent(html, [
     'product:price:amount',
     'og:price:amount',
@@ -205,10 +279,11 @@ function extractPriceFromHtml(html) {
     'price'
   ]);
   const metaPrice = normalizePrice(meta);
-  if (metaPrice) return metaPrice;
+  if (metaPrice && !isLikelyAuxiliaryPriceContext(meta)) return { price: metaPrice, saleInfo: detectSaleInfo(metaPrice, meta), priceSource: 'meta' };
 
   const focused = html.match(/(?:price|preco|preço|valor)[\s\S]{0,500}/i)?.[0];
-  return normalizePrice(focused) || normalizePrice(html.slice(0, 250000));
+  const price = collectPriceCandidates(focused)[0] || collectPriceCandidates(html.slice(0, 250000))[0] || null;
+  return price ? { price, saleInfo: detectSaleInfo(price, focused || html.slice(0, 250000)), priceSource: focused ? 'focused' : 'html' } : null;
 }
 
 async function logActivity(entry) {
@@ -250,7 +325,54 @@ async function fetchCurrentPrice(url) {
   return extractPriceFromHtml(html);
 }
 
+function findPreviousReliablePrice(item, currentValue) {
+  const history = Array.isArray(item.priceHistory) ? item.priceHistory : [];
+  return history
+    .map(entry => ({ entry, value: parsePrice(entry?.price) }))
+    .find(({ value }) => value !== null && value > currentValue * 1.8)?.entry?.price || null;
+}
+
+function isSuspiciousStoredAutoDrop(item) {
+  const currentValue = parsePrice(item.price);
+  if (currentValue === null) return false;
+  const previousPrice = findPreviousReliablePrice(item, currentValue);
+  if (!previousPrice) return false;
+  const latestHistory = Array.isArray(item.priceHistory) ? item.priceHistory[0] : null;
+  const wasAutoUpdated = latestHistory?.source === 'auto' || item.priceDropNotifiedPrice === item.price;
+  return wasAutoUpdated && currentValue < parsePrice(previousPrice) * 0.55;
+}
+
+async function repairSuspiciousStoredPrices() {
+  const items = await getItems();
+  if (!Array.isArray(items) || !items.length) return;
+  let changed = false;
+
+  for (const item of items) {
+    if (!isSuspiciousStoredAutoDrop(item)) continue;
+    const wrongPrice = item.price;
+    const previousPrice = findPreviousReliablePrice(item, parsePrice(wrongPrice));
+    if (!previousPrice) continue;
+
+    item.priceHistory = Array.isArray(item.priceHistory) ? item.priceHistory : [];
+    item.priceHistory.unshift({
+      price: wrongPrice,
+      checkedAt: Date.now(),
+      source: 'auto_ignored',
+      note: 'Queda automatica suspeita revertida'
+    });
+    item.priceHistory = item.priceHistory.slice(0, 40);
+    item.price = previousPrice;
+    item.priceDropNotifiedPrice = '';
+    item.priceCheckError = 'Preco automatico suspeito revertido; sera conferido novamente.';
+    item.updatedAt = Date.now();
+    changed = true;
+  }
+
+  if (changed) await setItems(items);
+}
+
 async function checkSavedPrices() {
+  await repairSuspiciousStoredPrices();
   const items = await getItems();
   if (!Array.isArray(items) || !items.length) return;
 
@@ -264,32 +386,35 @@ async function checkSavedPrices() {
     const previousPrice = item.price;
     try {
       const nextPrice = await fetchCurrentPrice(item.url);
+      const nextPriceValue = typeof nextPrice === 'string' ? nextPrice : nextPrice?.price;
       item.priceCheckedAt = Date.now();
       item.priceCheckError = '';
-      if (nextPrice && parsePrice(nextPrice) !== null) {
-        const priceChanged = parsePrice(nextPrice) !== parsePrice(previousPrice);
+      if (nextPriceValue && parsePrice(nextPriceValue) !== null) {
+        const priceChanged = parsePrice(nextPriceValue) !== parsePrice(previousPrice);
+        item.saleInfo = { ...(item.saleInfo || {}), ...(nextPrice?.saleInfo || {}), currentPrice: nextPriceValue };
+        item.priceSource = nextPrice?.priceSource || item.priceSource || '';
         let priceDropped = false;
         if (priceChanged) {
           const previousValue = parsePrice(previousPrice);
-          const nextValue = parsePrice(nextPrice);
+          const nextValue = parsePrice(nextPriceValue);
           priceDropped = previousValue !== null && nextValue !== null && nextValue < previousValue;
           item.priceHistory = Array.isArray(item.priceHistory) ? item.priceHistory : [];
-          item.priceHistory.unshift({ price: nextPrice, checkedAt: Date.now(), source: 'auto' });
+          item.priceHistory.unshift({ price: nextPriceValue, checkedAt: Date.now(), source: 'auto', saleInfo: item.saleInfo });
           item.priceHistory = item.priceHistory.slice(0, 40);
-          item.price = nextPrice;
+          item.price = nextPriceValue;
           item.updatedAt = Date.now();
           await logActivity({
             type: priceDropped ? 'queda_preco' : 'preco_atualizado',
             itemName: item.name,
-            detail: `Preço automático: ${previousPrice || 'sem preço'} → ${nextPrice}`,
+            detail: `Preço automático: ${previousPrice || 'sem preço'} → ${nextPriceValue}`,
             url: item.url,
             imageUrl: item.imageUrl
           });
         }
-        if (priceDropped && item.priceDropNotifiedPrice !== nextPrice) {
-          await addPriceDropNotification(item, previousPrice, nextPrice);
-          await notifyPriceDrop(item, previousPrice, nextPrice);
-          item.priceDropNotifiedPrice = nextPrice;
+        if (priceDropped && item.priceDropNotifiedPrice !== nextPriceValue) {
+          await addPriceDropNotification(item, previousPrice, nextPriceValue);
+          await notifyPriceDrop(item, previousPrice, nextPriceValue);
+          item.priceDropNotifiedPrice = nextPriceValue;
           item.priceDropNotifiedAt = Date.now();
         }
       }
@@ -316,7 +441,9 @@ chrome.runtime.onInstalled.addListener(() => {
   checkSavedPrices();
 });
 
-chrome.runtime.onStartup.addListener(schedulePriceChecks);
+chrome.runtime.onStartup.addListener(() => {
+  schedulePriceChecks();
+});
 
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === PRICE_CHECK_ALARM) checkSavedPrices();
