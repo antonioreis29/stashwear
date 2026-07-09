@@ -37,6 +37,8 @@ function getScraper() {
   let detectTimer = null;
   let lastUrl = location.href;
   let lastDetectedUrl = '';
+  let detectionAttempts = 0;
+  const MAX_DETECTION_ATTEMPTS = 6;
 
   function foldText(value) {
     return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -85,7 +87,7 @@ function getScraper() {
       ['Vestido', /\b(vestido|dress)\b/],
       ['Saia', /\b(saia|skirt)\b/],
       ['Bolsa', /\b(bolsa|bag|mochila|clutch|tote)\b/],
-      ['Acessorio', /\b(acessorio|oculos|relogio|cinto|bone|chapeu|brinco|colar|pulseira|anel|meia)\b/]
+      ['Acessorio', /\b(acessorio|oculos|relogio|cinto|bone|chapeu|gorro|touca|strapback|snapback|dad\s*hat|aba\s*curva|brinco|colar|pulseira|anel|meia)\b/]
     ];
     const found = rules.find(([, pattern]) => pattern.test(text));
     return found ? found[0] : 'Outro';
@@ -93,6 +95,13 @@ function getScraper() {
 
   function priceHistory(item) {
     return Array.isArray(item.priceHistory) ? item.priceHistory : [];
+  }
+
+  async function forgetDeletedItemKeys(keys) {
+    const remove = new Set(keys.map(value => String(value || '')).filter(Boolean));
+    if (!remove.size) return;
+    const deletedKeys = await storageGet('deletedItemKeys');
+    await storageSet('deletedItemKeys', deletedKeys.filter(key => !remove.has(String(key))));
   }
 
   function parsePrice(str) {
@@ -109,6 +118,20 @@ function getScraper() {
 
   function formatPrice(n) {
     return 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function cleanDisplayName(name) {
+    const fallback = String(name || 'Peca sem nome');
+    return fallback
+      .replace(/^\s*comprar\s+/i, '')
+      .replace(/\s*(?:-|–|—|\|)?\s*(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?.*$/i, '')
+      .trim() || fallback;
+  }
+
+  function embeddedPriceFromName(name) {
+    const matches = String(name || '').match(/(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?/gi) || [];
+    const values = matches.map(parsePrice).filter(value => value !== null && value >= 10 && value < 50000);
+    return values.length ? values[values.length - 1] : null;
   }
 
   async function logActivity(entry) {
@@ -137,8 +160,14 @@ function getScraper() {
     const storeName = domainToName(domain);
     const now = Date.now();
     const existingIndex = items.findIndex(item => normalizeComparableUrl(item.url) === comparableUrl);
-    const name = product.name || document.title || 'Peca sem nome';
-    const price = product.price || '';
+    const rawName = product.name || document.title || 'Peca sem nome';
+    const name = cleanDisplayName(rawName);
+    const rawPrice = product.price || '';
+    const embeddedPrice = embeddedPriceFromName(rawName);
+    const rawPriceValue = parsePrice(rawPrice);
+    const price = embeddedPrice !== null && (rawPriceValue === null || rawPriceValue < 10 || embeddedPrice / Math.max(rawPriceValue, 0.01) > 10)
+      ? formatPrice(embeddedPrice)
+      : rawPrice;
     const parsedPrice = parsePrice(price);
     const imageUrl = product.imageUrl || null;
     const saleInfo = product.saleInfo || { onSale: false };
@@ -191,6 +220,7 @@ function getScraper() {
 
     const savedItem = items[0];
     await storageSet('items', items);
+    await forgetDeletedItemKeys([currentUrl, savedItem.savedAt, savedItem.id, savedItem.name]);
     await autoSaveStore(currentUrl);
     await logActivity({
       type: existingIndex >= 0 ? 'atualizada' : 'salvo',
@@ -339,12 +369,24 @@ function getScraper() {
     lastDetectedUrl = '';
   }
 
-  async function detectProductSoon(delay = 500) {
-    clearTimeout(detectTimer);
+  function scheduleDetectionRetry() {
+    if (currentProduct || detectionAttempts >= MAX_DETECTION_ATTEMPTS) return;
+    detectionAttempts += 1;
+    detectProductSoon(Math.min(5200, 850 + detectionAttempts * 650));
+  }
+
+  async function detectProductSoon(delay = 500, force = false) {
+    if (detectTimer) {
+      if (!force) return;
+      clearTimeout(detectTimer);
+      detectTimer = null;
+    }
     detectTimer = setTimeout(async () => {
+      detectTimer = null;
       if (!document.body || !/^https?:\/\//i.test(location.href)) return;
       if (isBlockedPage()) {
         currentProduct = null;
+        detectionAttempts = 0;
         removeHost();
         return;
       }
@@ -352,15 +394,18 @@ function getScraper() {
         const product = await getScraper().scrapeProduct();
         if (product?.isProductPage && product?.isFashion) {
           currentProduct = product;
+          detectionAttempts = 0;
           lastDetectedUrl = location.href;
           renderProduct(product);
         } else {
           currentProduct = null;
           removeHost();
+          scheduleDetectionRetry();
         }
       } catch {
         currentProduct = null;
         removeHost();
+        scheduleDetectionRetry();
       }
     }, delay);
   }
@@ -371,8 +416,9 @@ function getScraper() {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       currentProduct = null;
+      detectionAttempts = 0;
       removeHost();
-      detectProductSoon(900);
+      detectProductSoon(900, true);
       return;
     }
     if (!currentProduct || lastDetectedUrl !== location.href) detectProductSoon(1200);

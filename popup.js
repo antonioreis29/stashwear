@@ -6,6 +6,8 @@ const getStores = () => get('stores');
 const setStores = v => save('stores', v);
 const getActivities = () => get('activities');
 const setActivities = v => save('activities', v);
+const getDeletedItemKeys = () => get('deletedItemKeys');
+const setDeletedItemKeys = v => save('deletedItemKeys', v);
 const THEME_KEY = 'stashwearTheme';
 
 let activeFilter = 'Todos';
@@ -133,7 +135,7 @@ function inferItemCategory(name = '', url = '') {
     ['Vestido', /\b(vestido|dress)\b/],
     ['Saia', /\b(saia|skirt)\b/],
     ['Bolsa', /\b(bolsa|bag|mochila|clutch|tote)\b/],
-    ['Acessorio', /\b(acessorio|oculos|relogio|cinto|bone|chapeu|brinco|colar|pulseira|anel|meia)\b/]
+    ['Acessorio', /\b(acessorio|oculos|relogio|cinto|bone|chapeu|gorro|touca|strapback|snapback|dad\s*hat|aba\s*curva|brinco|colar|pulseira|anel|meia)\b/]
   ];
   const found = rules.find(([, pattern]) => pattern.test(text));
   return found ? found[0] : 'Outro';
@@ -141,16 +143,61 @@ function inferItemCategory(name = '', url = '') {
 function priceHistory(item) {
   return Array.isArray(item.priceHistory) ? item.priceHistory : [];
 }
-function getLowestPrice(item) {
-  const values = priceHistory(item).map(h => parsePrice(h.price)).filter(n => n !== null);
-  const current = parsePrice(item.price);
+function itemDeletionKeys(item) {
+  return [item?.url, item?.savedAt, item?.id, item?.name].map(value => String(value || '')).filter(Boolean);
+}
+async function rememberDeletedItem(item) {
+  const deletedKeys = await getDeletedItemKeys();
+  const nextKeys = Array.from(new Set([...deletedKeys, ...itemDeletionKeys(item)])).slice(-400);
+  await setDeletedItemKeys(nextKeys);
+}
+async function forgetDeletedItemKeys(keys) {
+  const remove = new Set(keys.map(value => String(value || '')).filter(Boolean));
+  if (!remove.size) return;
+  const deletedKeys = await getDeletedItemKeys();
+  await setDeletedItemKeys(deletedKeys.filter(key => !remove.has(String(key))));
+}
+function cleanDisplayName(name) {
+  const fallback = String(name || 'Peça sem nome');
+  return fallback
+    .replace(/^\s*comprar\s+/i, '')
+    .replace(/\s*(?:-|–|—|\|)?\s*(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?.*$/i, '')
+    .trim() || fallback;
+}
+function embeddedPriceFromName(item) {
+  const matches = String(item?.name || '').match(/(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?/gi) || [];
+  const values = matches.map(parsePrice).filter(value => value !== null && value >= 10 && value < 50000);
+  return values.length ? values[values.length - 1] : null;
+}
+function trustedCurrentPrice(item) {
+  const current = parsePrice(item?.price);
+  const embedded = embeddedPriceFromName(item);
+  if (embedded !== null && (current === null || current < 10 || embedded / Math.max(current, 0.01) > 10)) {
+    return { value: embedded, text: formatPrice(embedded) };
+  }
+  if (current !== null && current > 0 && current < 50000) return { value: current, text: item.price || formatPrice(current) };
+  return { value: embedded, text: embedded !== null ? formatPrice(embedded) : (item?.price || 'Sem preço') };
+}
+function trustedPriceValues(item, includeOriginal = false) {
+  const current = trustedCurrentPrice(item).value;
+  const values = [];
   if (current !== null) values.push(current);
+  priceHistory(item).forEach(entry => {
+    const value = parsePrice(entry?.price);
+    if (value !== null && value > 0 && value < 50000 && (current === null || (value / current <= 10 && current / value <= 10))) values.push(value);
+  });
+  if (includeOriginal) {
+    const original = parsePrice(item.saleInfo?.originalPrice);
+    if (original !== null && current !== null && original > current * 1.03 && original / current <= 10 && original < 50000) values.push(original);
+  }
+  return values;
+}
+function getLowestPrice(item) {
+  const values = trustedPriceValues(item);
   return values.length ? Math.min(...values) : null;
 }
 function getHighestPrice(item) {
-  const values = priceHistory(item).map(h => parsePrice(h.price)).filter(n => n !== null);
-  const current = parsePrice(item.price);
-  if (current !== null) values.push(current);
+  const values = trustedPriceValues(item, true);
   return values.length ? Math.max(...values) : null;
 }
 function getPriorityLevel(item) {
@@ -172,16 +219,42 @@ function getNextPriority(level) {
   return 'alta';
 }
 function hasPriceDrop(item) {
-  const current = parsePrice(item.price);
+  const current = trustedCurrentPrice(item).value;
   const high = getHighestPrice(item);
-  return current !== null && high !== null && current < high;
+  return current !== null && high !== null && current < high * 0.97;
 }
 function isOnSale(item) {
-  return Boolean(item.saleInfo?.onSale);
+  const current = trustedCurrentPrice(item).value;
+  const original = parsePrice(item.saleInfo?.originalPrice);
+  const percent = Number(item.saleInfo?.discountPercent || 0);
+  if (!item.saleInfo?.onSale || current === null || percent >= 95) return false;
+  if (original !== null) return original > current * 1.03 && original / current <= 10 && original < 50000;
+  return percent >= 5 && percent < 95;
 }
 function saleBadgeText(item) {
   const percent = Number(item.saleInfo?.discountPercent || 0);
-  return percent > 0 ? `Sale -${percent}%` : 'Sale';
+  return percent > 0 && percent < 95 ? `-${percent}% OFF` : 'Promo ativa';
+}
+function priceDisplayHtml(item) {
+  const trusted = trustedCurrentPrice(item);
+  const currentValue = trusted.value;
+  const originalValue = parsePrice(item.saleInfo?.originalPrice);
+  const hasOriginal = isOnSale(item) && originalValue !== null && currentValue !== null && originalValue > currentValue;
+  return `<span class="price-stack">
+    ${hasOriginal ? `<span class="original-price">${escapeHtml(item.saleInfo.originalPrice)}</span>` : ''}
+    <span class="item-price">${escapeHtml(trusted.text || 'Sem preço')}</span>
+  </span>`;
+}
+function priceMemoryHtml(low, high) {
+  if (low === null || high === null || low === high) return '';
+  return `<div class="price-history-line">Menor ${formatPrice(low)} · Maior ${formatPrice(high)}</div>`;
+}
+function emptyStateHtml(title, message) {
+  return `<div class="empty-state styled-empty">
+    <div class="empty-preview-card"><span></span><strong></strong><em></em></div>
+    <p>${escapeHtml(title)}</p>
+    <small>${escapeHtml(message)}</small>
+  </div>`;
 }
 function isRecentlySaved(item) {
   const savedAt = Number(item.savedAt || item.updatedAt || 0);
@@ -189,8 +262,8 @@ function isRecentlySaved(item) {
 }
 function getCurationScore(item, allItems = []) {
   const priority = getPriorityLevel(item);
-  const price = parsePrice(item.price) || 0;
-  const prices = allItems.map(i => parsePrice(i.price)).filter(n => n !== null).sort((a, b) => a - b);
+  const price = trustedCurrentPrice(item).value || 0;
+  const prices = allItems.map(i => trustedCurrentPrice(i).value).filter(n => n !== null).sort((a, b) => a - b);
   const premiumCut = prices.length ? prices[Math.max(0, Math.floor(prices.length * 0.75) - 1)] : 0;
   let score = 0;
   if (item.favorite) score += 50;
@@ -269,15 +342,68 @@ async function scrapeWithSharedDetector(tabId) {
   return injected?.[0]?.result || {};
 }
 
+function normalizeDetectedData(tab, data = {}) {
+  const rawName = data.name || tab?.title || '';
+  const name = rawName ? cleanDisplayName(rawName) : rawName;
+  const rawPrice = data.price || '';
+  const embeddedPrice = embeddedPriceFromName({ name: rawName });
+  const rawPriceValue = parsePrice(rawPrice);
+  const price = embeddedPrice !== null && (rawPriceValue === null || rawPriceValue < 10 || embeddedPrice / Math.max(rawPriceValue, 0.01) > 10)
+    ? formatPrice(embeddedPrice)
+    : rawPrice;
+  return {
+    ...data,
+    name: name || data.name || tab?.title || null,
+    price,
+    saleInfo: data.saleInfo ? { ...data.saleInfo, currentPrice: price || data.saleInfo.currentPrice || null } : data.saleInfo
+  };
+}
+
+function detectionScore(data = {}) {
+  if (!data || typeof data !== 'object') return -1;
+  return Number(data.confidenceScore || 0)
+    + (data.isProductPage ? 8 : 0)
+    + (data.isFashion ? 5 : 0)
+    + (data.name ? 1 : 0)
+    + (data.price ? 1 : 0)
+    + (data.imageUrl ? 1 : 0)
+    - (data.validationReason && data.validationReason !== 'ok' ? 2 : 0);
+}
+
+function chooseDetectedData(primary = {}, fallback = {}) {
+  if (fallback?.isProductPage && fallback?.isFashion && !(primary?.isProductPage && primary?.isFashion)) return fallback;
+  if (primary?.isProductPage && primary?.isFashion && !(fallback?.isProductPage && fallback?.isFashion)) return primary;
+  return detectionScore(fallback) > detectionScore(primary) ? fallback : primary;
+}
+
+function shouldRetryDetection(data = {}) {
+  return !data?.isProductPage || ['missing_price', 'missing_image', 'low_confidence'].includes(data.validationReason);
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function scrapeCurrentPage() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !/^https?:\/\//i.test(tab.url || '')) return { tab, data: { name: tab?.title || null, price: null, imageUrl: null, isProductPage: false } };
+    let responseData = null;
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeProduct' });
-      if (response && (response.imageUrl || response.price || response.name)) return { tab, data: response };
+      if (response && (response.imageUrl || response.price || response.name || response.validationReason)) responseData = response;
     } catch (e) {}
-    return { tab, data: await scrapeWithSharedDetector(tab.id) };
+    if (responseData?.isProductPage && responseData?.isFashion && responseData.validationReason !== 'low_confidence') {
+      return { tab, data: normalizeDetectedData(tab, responseData) };
+    }
+    const injectedData = await scrapeWithSharedDetector(tab.id);
+    let selectedData = chooseDetectedData(responseData || {}, injectedData || {});
+    if (shouldRetryDetection(selectedData)) {
+      await wait(450);
+      const retryData = await scrapeWithSharedDetector(tab.id);
+      selectedData = chooseDetectedData(selectedData || {}, retryData || {});
+    }
+    return { tab, data: normalizeDetectedData(tab, selectedData) };
   } catch (e) {
     return { tab: null, data: {} };
   }
@@ -344,7 +470,7 @@ async function renderToolbar(visibleItems) {
   if (allItems.length === 0) { toolbar.style.display = 'none'; return; }
   toolbar.style.display = 'flex';
   const pending = visibleItems;
-  const prices = pending.map(i => parsePrice(i.price)).filter(n => n !== null);
+  const prices = pending.map(i => trustedCurrentPrice(i).value).filter(n => n !== null);
   if (prices.length > 0) {
     const total = prices.reduce((a, b) => a + b, 0);
     totalBox.innerHTML = `${prices.length} peça${prices.length > 1 ? 's' : ''} · total <strong>${formatPrice(total)}</strong>`;
@@ -379,6 +505,8 @@ async function renderFeaturedPiece() {
   if (!featured) { box.style.display = 'none'; box.innerHTML = ''; return; }
   const low = getLowestPrice(featured);
   const high = getHighestPrice(featured);
+  const trusted = trustedCurrentPrice(featured);
+  const displayName = cleanDisplayName(featured.name);
   const score = getCurationScore(featured, items);
   const reasons = [];
   if (featured.favorite) reasons.push('favorita');
@@ -394,10 +522,10 @@ async function renderFeaturedPiece() {
       <div class="featured-copy">
         <div>
           <span class="eyebrow">Curadoria Atual</span>
-          <h3>${escapeHtml(featured.name || 'Peça sem nome')}</h3>
+          <h3>${escapeHtml(displayName)}</h3>
           <div class="featured-meta">
             ${featured.store ? `<span>${escapeHtml(featured.store)}</span>` : ''}
-            ${featured.price ? `<span>${escapeHtml(featured.price)}</span>` : ''}
+            ${trusted.text ? `<span>${escapeHtml(trusted.text)}</span>` : ''}
             <span>${getPriorityLabel(featured)}</span>
             ${featured.favorite ? `<span>Favorita</span>` : ''}
             ${isOnSale(featured) ? `<span>${escapeHtml(saleBadgeText(featured))}</span>` : ''}
@@ -486,6 +614,7 @@ function itemCardHtml(item, realIndex, compact = false) {
   const priority = item.priority || 'normal';
   const priorityLevel = getPriorityLevel(item);
   const tags = getTags(item);
+  const displayName = cleanDisplayName(item.name);
   const low = getLowestPrice(item);
   const high = getHighestPrice(item);
   const priceDropped = hasPriceDrop(item);
@@ -499,7 +628,7 @@ function itemCardHtml(item, realIndex, compact = false) {
       </div>
       <div class="card-body">
         <div class="item-top">
-          <div class="title-line"><span class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name || 'Peça sem nome')}</span><button class="btn-fav ${item.favorite ? 'active' : ''}" data-index="${realIndex}" title="Favoritar">${item.favorite ? '♥' : '♡'}</button></div>
+          <div class="title-line"><span class="item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span><button class="btn-fav ${item.favorite ? 'active' : ''}" data-index="${realIndex}" title="Favoritar">${item.favorite ? '♥' : '♡'}</button></div>
           <div class="item-badges">
             <span class="badge badge-light">${getPriorityLabel(item)}</span>
             ${item.category ? `<span class="badge">${escapeHtml(item.category)}</span>` : ''}
@@ -507,8 +636,8 @@ function itemCardHtml(item, realIndex, compact = false) {
             ${priceDropped ? `<span class="badge badge-alert">Preço caiu</span>` : ''}
           </div>
         </div>
-        <div class="item-meta">${item.store ? `<span class="item-store-tag">${escapeHtml(item.store)}</span>` : ''}${item.price ? `<span class="item-price">${escapeHtml(item.price)}</span>` : ''}</div>
-        ${low !== null && high !== null && low !== high ? `<div class="price-history-line">Menor ${formatPrice(low)} · Maior ${formatPrice(high)}</div>` : ''}
+        <div class="item-meta">${item.store ? `<span class="item-store-tag">${escapeHtml(item.store)}</span>` : ''}${priceDisplayHtml(item)}</div>
+        ${priceMemoryHtml(low, high)}
         ${tags.length ? `<div class="tag-list">${tags.map(t => `<span>${escapeHtml(t)}</span>`).join('')}</div>` : ''}
         ${!compact && item.note ? `<div class="item-note">${escapeHtml(item.note)}</div>` : ''}
         <div class="item-actions">
@@ -545,6 +674,7 @@ function bindItemActions(root) {
     const all = await getItems();
     const removed = all[parseInt(btn.dataset.index)];
     if (removed) await logActivity({ type: 'removida', itemName: removed.name, detail: 'Removida da coleção' });
+    if (removed) await rememberDeletedItem(removed);
     all.splice(parseInt(btn.dataset.index), 1);
     await setItems(all); activeFilter = 'Todos'; refreshAll();
   }));
@@ -565,7 +695,9 @@ async function renderItems() {
   renderShoppingList();
 
   if (items.length === 0) {
-    list.innerHTML = `<div class="empty-state"><div class="empty-icon">◎</div><p>${activeFilter === 'Todos' ? 'Nenhuma peça salva ainda.' : `Nenhuma peça em "${escapeHtml(activeFilter)}".`}</p><small>${activeFilter === 'Todos' ? 'Entre em uma loja e clique em "Salvar peça atual".' : 'Tente outro filtro.'}</small></div>`;
+    list.innerHTML = activeFilter === 'Todos'
+      ? emptyStateHtml('Nenhuma peça salva ainda.', 'Entre em uma loja e clique em "Salvar peça atual".')
+      : emptyStateHtml(`Nenhuma peça em "${activeFilter}".`, 'Tente outro filtro.');
     return;
   }
   list.innerHTML = '';
@@ -609,7 +741,7 @@ async function renderShoppingList() {
     .sort((a, b) => getCurationScore(b, allItems) - getCurationScore(a, allItems));
   if (!items.length) {
     const labels = { todos: 'prioridades', alta: 'prioridade alta', avaliando: 'avaliando', inspiracional: 'inspiracional' };
-    list.innerHTML = `<div class="empty-state"><div class="empty-icon">◎</div><p>Nenhuma peça em ${labels[activePriorityFilter]}.</p><small>Altere a prioridade da peça ao salvar ou pelo botão dentro do card.</small></div>`;
+    list.innerHTML = emptyStateHtml(`Nenhuma peça em ${labels[activePriorityFilter]}.`, 'Altere a prioridade da peça ao salvar ou pelo botão dentro do card.');
     return;
   }
   list.innerHTML = '';
@@ -666,8 +798,14 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
     }
     const typedName = document.getElementById('item-name').value.trim();
     const typedPrice = document.getElementById('item-price').value.trim();
-    const name = typedName || data?.name || tab?.title || 'Peça sem nome';
-    const price = typedPrice || data?.price || '';
+    const rawName = typedName || data?.name || tab?.title || 'Peça sem nome';
+    const name = cleanDisplayName(rawName);
+    const rawPrice = typedPrice || data?.price || '';
+    const embeddedPrice = embeddedPriceFromName({ name: rawName });
+    const rawPriceValue = parsePrice(rawPrice);
+    const price = !typedPrice && embeddedPrice !== null && (rawPriceValue === null || rawPriceValue < 10 || embeddedPrice / Math.max(rawPriceValue, 0.01) > 10)
+      ? formatPrice(embeddedPrice)
+      : rawPrice;
     const imageUrl = data?.imageUrl || null;
     const saleInfo = data?.saleInfo || { onSale: false };
     const selectedStore = document.getElementById('item-store').value;
@@ -739,6 +877,7 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
       await logActivity({ type: 'salvo', itemName: savedItem.name, detail: savedItem.price ? `Salva por ${savedItem.price}` : 'Adicionada à coleção', url: savedItem.url, imageUrl: savedItem.imageUrl });
     }
     await setItems(items);
+    await forgetDeletedItemKeys([currentUrl, savedItem.savedAt, savedItem.id, savedItem.name]);
     if (currentUrl) await autoSaveStore(currentUrl);
     ['item-name','item-price','item-note','item-target-price','item-tags'].forEach(id => {
       const field = document.getElementById(id);

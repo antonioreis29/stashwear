@@ -1,5 +1,5 @@
 (function () {
-  const DATA_KEYS = ['items', 'folders', 'stores', 'activities'];
+  const DATA_KEYS = ['items', 'folders', 'stores', 'activities', 'deletedItemKeys'];
   const SESSION_KEY = 'stashwearSupabaseSession';
   const TOKEN_REFRESH_MARGIN_SECONDS = 120;
   const config = globalThis.STASHWEAR_SUPABASE || {};
@@ -251,6 +251,10 @@
     return String(item?.url || item?.savedAt || item?.id || item?.name || '');
   }
 
+  function deletedItemKeySet(payload = {}) {
+    return new Set((Array.isArray(payload.deletedItemKeys) ? payload.deletedItemKeys : []).map(key => String(key || '')).filter(Boolean));
+  }
+
   function storeKey(store) {
     try { return new URL(store?.url || '').hostname.replace(/^www\./, '').toLowerCase(); } catch {}
     return String(store?.url || store?.name || '').toLowerCase();
@@ -271,14 +275,18 @@
   }
 
   function mergePayloads(remotePayload = {}, localPayload = {}) {
+    const deletedKeys = new Set([...deletedItemKeySet(remotePayload), ...deletedItemKeySet(localPayload)]);
+    const isDeletedItem = item => deletedKeys.has(itemKey(item));
     return {
       items: mergeByKey(remotePayload.items, localPayload.items, itemKey)
+        .filter(item => !isDeletedItem(item))
         .sort((a, b) => Number(b.savedAt || b.updatedAt || 0) - Number(a.savedAt || a.updatedAt || 0)),
       folders: mergeByKey(remotePayload.folders, localPayload.folders, folder => String(folder?.id || folder?.name || '')),
       stores: mergeByKey(remotePayload.stores, localPayload.stores, storeKey),
       activities: mergeByKey(remotePayload.activities, localPayload.activities, activityKey)
         .sort((a, b) => Number(b.at || 0) - Number(a.at || 0))
-        .slice(0, 120)
+        .slice(0, 120),
+      deletedItemKeys: Array.from(deletedKeys).slice(-400)
     };
   }
 
@@ -321,8 +329,9 @@
     const localPayload = await collectLocalData();
     const remoteRow = await getRemoteSnapshot();
     const remotePayload = remoteRow?.payload || {};
+    const hasLocalDeletes = Array.isArray(localPayload.deletedItemKeys) && localPayload.deletedItemKeys.length > 0;
 
-    if (saveLocal && hasAnyLocalData(localPayload)) {
+    if ((saveLocal && hasAnyLocalData(localPayload)) || (remoteRow && hasLocalDeletes)) {
       const mergedPayload = mergePayloads(remotePayload, localPayload);
       await setStorage(DATA_KEYS.reduce((acc, key) => {
         acc[key] = Array.isArray(mergedPayload[key]) ? mergedPayload[key] : [];

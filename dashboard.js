@@ -10,6 +10,8 @@ const getStores = () => get('stores');
 const setStores = value => save('stores', value);
 const getNotifications = () => get('notifications');
 const setNotifications = value => save('notifications', value);
+const getDeletedItemKeys = () => get('deletedItemKeys');
+const setDeletedItemKeys = value => save('deletedItemKeys', value);
 const SYNC_STATUS_KEY = 'stashwearSyncStatus';
 const THEME_KEY = 'stashwearTheme';
 const getStorageObject = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -94,6 +96,14 @@ function getTags(item) {
 }
 function itemKey(item) {
   return String(item?.savedAt || item?.url || item?.id || item?.name || '');
+}
+function itemDeletionKeys(item) {
+  return [item?.url, item?.savedAt, item?.id, item?.name].map(value => String(value || '')).filter(Boolean);
+}
+async function rememberDeletedItem(item) {
+  const deletedKeys = await getDeletedItemKeys();
+  const nextKeys = Array.from(new Set([...deletedKeys, ...itemDeletionKeys(item)])).slice(-400);
+  await setDeletedItemKeys(nextKeys);
 }
 function createFolderId() {
   return `folder-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -610,17 +620,36 @@ function notificationDateLabel(ts) {
   const date = new Date(Number(ts) || Date.now());
   return date.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
+function isReliablePriceDropNotification(notification) {
+  if (notification?.type !== 'price_drop') return true;
+  const previous = parsePrice(notification.previousPrice);
+  const current = parsePrice(notification.currentPrice);
+  if (previous === null || current === null) return true;
+  if (current >= previous) return false;
+  return current / previous >= 0.55;
+}
+function notificationMessage(notification) {
+  if (notification?.type === 'sale_ended') {
+    if (notification.previousPrice && notification.currentPrice) {
+      return `Promoção encerrada: ${notification.previousPrice} -> ${notification.currentPrice}`;
+    }
+    return 'Promoção encerrada';
+  }
+  return `Caiu de ${notification.previousPrice || '-'} para ${notification.currentPrice || '-'}`;
+}
 function renderNotifications() {
   const bell = document.getElementById('notification-bell');
   const dot = document.getElementById('notification-dot');
   const panel = document.getElementById('notification-panel');
   if (!bell || !dot || !panel) return;
-  const notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  const notifications = (Array.isArray(state.notifications) ? state.notifications : []).filter(isReliablePriceDropNotification);
   const unread = notifications.filter(n => !n.read).length;
   dot.hidden = unread === 0;
   bell.classList.toggle('has-unread', unread > 0);
 
   if (!notifications.length) {
+    panel.innerHTML = `<div class="notification-empty"><strong>Nenhum alerta de preço ainda.</strong><small>O StashWear vai avisar quando uma peça baixar ou sair da promoção.</small></div>`;
+    return;
     panel.innerHTML = `<div class="notification-empty"><strong>Nenhuma queda de preço ainda.</strong><small>O StashWear vai avisar quando uma peça salva baixar.</small></div>`;
     return;
   }
@@ -634,7 +663,7 @@ function renderNotifications() {
       <span class="notification-thumb">${n.imageUrl ? `<img src="${escapeHtml(n.imageUrl)}" alt="">` : '<span></span>'}</span>
       <span class="notification-copy">
         <strong>${escapeHtml(n.itemName || 'Peça salva')}</strong>
-        <small>Caiu de ${escapeHtml(n.previousPrice || '-')} para ${escapeHtml(n.currentPrice || '-')}</small>
+        <small>${escapeHtml(notificationMessage(n))}</small>
         <em>${notificationDateLabel(n.createdAt)}</em>
       </span>
     </a>`).join('')}
@@ -699,28 +728,94 @@ function isRecent(item) {
   const date = Number(item.savedAt || item.updatedAt || 0);
   return date && Date.now() - date < 7 * 24 * 60 * 60 * 1000;
 }
-function getLowestPrice(item) {
-  const values = priceHistory(item).map(h => parsePrice(h.price)).filter(v => v !== null);
-  const current = parsePrice(item.price);
+function cleanDisplayName(name) {
+  const fallback = String(name || 'Peça sem nome');
+  return fallback
+    .replace(/^\s*comprar\s+/i, '')
+    .replace(/\s*(?:-|–|—|\|)?\s*(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?.*$/i, '')
+    .trim() || fallback;
+}
+function embeddedPriceFromName(item) {
+  const matches = String(item?.name || '').match(/(?:R\$|BRL|US\$|USD)\s*\d{1,3}(?:[\.\s]\d{3})*(?:[,.]\d{2})?/gi) || [];
+  const values = matches.map(parsePrice).filter(value => value !== null && value >= 10 && value < 50000);
+  return values.length ? values[values.length - 1] : null;
+}
+function trustedCurrentPrice(item) {
+  const current = parsePrice(item?.price);
+  const embedded = embeddedPriceFromName(item);
+  if (embedded !== null && (current === null || current < 10 || embedded / Math.max(current, 0.01) > 10)) {
+    return { value: embedded, text: formatPrice(embedded) };
+  }
+  if (current !== null && current > 0 && current < 50000) return { value: current, text: item.price || formatPrice(current) };
+  return { value: embedded, text: embedded !== null ? formatPrice(embedded) : (item?.price || 'Sem preço') };
+}
+function trustedPriceValues(item, includeOriginal = false) {
+  const current = trustedCurrentPrice(item).value;
+  const values = [];
   if (current !== null) values.push(current);
+  priceHistory(item).forEach(entry => {
+    const value = parsePrice(entry?.price);
+    if (value !== null && value > 0 && value < 50000 && (current === null || (value / current <= 10 && current / value <= 10))) values.push(value);
+  });
+  if (includeOriginal) {
+    const original = parsePrice(item.saleInfo?.originalPrice);
+    if (original !== null && current !== null && original > current * 1.03 && original / current <= 10 && original < 50000) values.push(original);
+  }
+  return values;
+}
+function getLowestPrice(item) {
+  const values = trustedPriceValues(item);
   return values.length ? Math.min(...values) : null;
 }
+function getHighestPrice(item) {
+  const values = trustedPriceValues(item, true);
+  return values.length ? Math.max(...values) : null;
+}
 function hasPriceDrop(item) {
-  const current = parsePrice(item.price);
-  const history = priceHistory(item).map(h => parsePrice(h.price)).filter(v => v !== null);
-  if (current === null || !history.length) return false;
-  return history.some(value => value > current);
+  const current = trustedCurrentPrice(item).value;
+  const high = getHighestPrice(item);
+  return current !== null && high !== null && high > current * 1.03;
 }
 function isOnSale(item) {
-  return Boolean(item.saleInfo?.onSale);
+  const current = trustedCurrentPrice(item).value;
+  const original = parsePrice(item.saleInfo?.originalPrice);
+  const percent = Number(item.saleInfo?.discountPercent || 0);
+  if (!item.saleInfo?.onSale || current === null || percent >= 95) return false;
+  if (original !== null) return original > current * 1.03 && original / current <= 10 && original < 50000;
+  return percent >= 5 && percent < 95;
 }
 function saleBadgeText(item) {
   const percent = Number(item.saleInfo?.discountPercent || 0);
-  return percent > 0 ? `Sale -${percent}%` : 'Sale';
+  return percent > 0 && percent < 95 ? `-${percent}% OFF` : 'Promo ativa';
+}
+function priceDisplayHtml(item) {
+  const trusted = trustedCurrentPrice(item);
+  const currentValue = trusted.value;
+  const originalValue = parsePrice(item.saleInfo?.originalPrice);
+  const hasOriginal = isOnSale(item) && originalValue !== null && currentValue !== null && originalValue > currentValue;
+  return `<span class="price-stack">
+    ${hasOriginal ? `<span class="original-price">${escapeHtml(item.saleInfo.originalPrice)}</span>` : ''}
+    <span class="item-price">${escapeHtml(trusted.text || 'Sem preço')}</span>
+  </span>`;
+}
+function priceMemoryHtml(item) {
+  const low = getLowestPrice(item);
+  const high = getHighestPrice(item);
+  if (low === null || high === null || low === high) return '';
+  return `<div class="price-memory">Menor ${formatPrice(low)} · Maior ${formatPrice(high)}</div>`;
+}
+function emptyStateHtml(title = 'Nenhuma peça encontrada.', message = 'Salve peças pelo popup ou ajuste os filtros.') {
+  return `<div class="empty-state styled-empty">
+    <div class="empty-preview-card">
+      <span></span><strong></strong><em></em>
+    </div>
+    <strong>${escapeHtml(title)}</strong>
+    <small>${escapeHtml(message)}</small>
+  </div>`;
 }
 function getCurationScore(item, allItems = state.items) {
-  const price = parsePrice(item.price) || 0;
-  const maxPrice = Math.max(1, ...allItems.map(i => parsePrice(i.price) || 0));
+  const price = trustedCurrentPrice(item).value || 0;
+  const maxPrice = Math.max(1, ...allItems.map(i => trustedCurrentPrice(i).value || 0));
   let score = 0;
   if (item.favorite) score += 50;
   if (getPriorityLevel(item) === 'alta') score += 40;
@@ -894,18 +989,20 @@ function renderCuration() {
   }
   const score = getCurationScore(featured);
   const lowest = getLowestPrice(featured);
-  const price = parsePrice(featured.price);
+  const trusted = trustedCurrentPrice(featured);
+  const price = trusted.value;
+  const displayName = cleanDisplayName(featured.name);
   const drop = lowest !== null && price !== null && price <= lowest && priceHistory(featured).length > 1;
   el.innerHTML = `<div class="curation-inner">
     <div class="curation-image">${featured.imageUrl ? `<img src="${escapeHtml(featured.imageUrl)}" alt="${escapeHtml(featured.name)}">` : '<div class="thumb-placeholder">◇</div>'}</div>
     <div class="curation-copy">
       <div>
         <span class="eyebrow">Curadoria Atual</span>
-        <h2>${escapeHtml(featured.name)}</h2>
+        <h2>${escapeHtml(displayName)}</h2>
         <div class="curation-meta">
           ${featured.favorite ? '<span class="pill light">♥ Favorita</span>' : ''}
           <span class="pill">${priorityLabel(featured)}</span>
-          ${featured.price ? `<span class="pill">${escapeHtml(featured.price)}</span>` : ''}
+          ${trusted.text ? `<span class="pill">${escapeHtml(trusted.text)}</span>` : ''}
           ${featured.store ? `<span class="pill">${escapeHtml(featured.store)}</span>` : ''}
           ${drop ? '<span class="pill light">↓ Menor preço</span>' : ''}
           <span class="pill">Pontuação ${score}</span>
@@ -917,11 +1014,12 @@ function renderCuration() {
   </div>`;
 }
 function itemCardHtml(item, index, options = {}) {
-  const price = parsePrice(item.price);
+  const price = trustedCurrentPrice(item).value;
   const lowest = getLowestPrice(item);
   const dropped = hasPriceDrop(item);
   const onSale = isOnSale(item);
-  const nameClass = getNameSizeClass(item.name);
+  const displayName = cleanDisplayName(item.name);
+  const nameClass = getNameSizeClass(displayName);
   return `<article class="item-card ${nameClass}" data-index="${index}">
     <div class="item-thumb">
       ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : '<div class="thumb-placeholder">◇</div>'}
@@ -929,8 +1027,9 @@ function itemCardHtml(item, index, options = {}) {
       <button class="fav-btn ${item.favorite ? 'active' : ''}" data-action="favorite" title="Favoritar">♥</button>
     </div>
     <div class="item-body">
-      <div class="item-title-row"><div class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div></div>
-      <div class="item-meta"><span class="item-store">${escapeHtml(item.store || item.category || 'Sem loja')}</span><span class="item-price">${escapeHtml(item.price || 'Sem preço')}</span></div>
+      <div class="item-title-row"><div class="item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div></div>
+      <div class="item-meta"><span class="item-store">${escapeHtml(item.store || item.category || 'Sem loja')}</span>${priceDisplayHtml(item)}</div>
+      ${priceMemoryHtml(item)}
       <div class="card-surface-row">
         <span class="piece-type">${escapeHtml(getItemType(item))}</span>
         ${onSale ? `<span class="sale-pill">${escapeHtml(saleBadgeText(item))}</span>` : ''}
@@ -951,7 +1050,7 @@ function itemCardHtml(item, index, options = {}) {
 function renderGrid(id, items, options = {}) {
   const el = document.getElementById(id);
   if (!items.length) {
-    el.innerHTML = `<div class="empty-state"><strong>Nenhuma peça encontrada.</strong><br><small>Salve peças pelo popup ou ajuste os filtros.</small></div>`;
+    el.innerHTML = emptyStateHtml();
     return;
   }
   el.innerHTML = items.map(item => itemCardHtml(item, state.items.findIndex(i => itemKey(i) === itemKey(item)), options)).join('');
@@ -1350,6 +1449,7 @@ function bindCardActions(container, options = {}) {
       const [removed] = state.items.splice(index, 1);
       const removedKey = itemKey(removed);
       state.folders.forEach(folder => { folder.itemKeys = folder.itemKeys.filter(key => key !== removedKey); });
+      await rememberDeletedItem(removed);
       await setFolders(state.folders);
       await setItems(state.items);
       showToast('Peça removida da coleção', 'danger');
