@@ -237,6 +237,7 @@
   box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
 }
 .collection-grid .priority-toggle button{
+  position:relative;
   height:30px;
   min-width:0;
   border:1px solid transparent;
@@ -262,13 +263,13 @@
   opacity:.56;
 }
 .collection-grid .priority-toggle button[data-value="alta"]{
-  color:#d8b86a;
+  color:#cfc7bd;
 }
-.collection-grid .priority-toggle button[data-value="avaliando"]{
-  color:#9fb0c0;
+.collection-grid .priority-toggle button[data-value="media"]{
+  color:#cfc7bd;
 }
-.collection-grid .priority-toggle button[data-value="inspiracional"]{
-  color:#93a691;
+.collection-grid .priority-toggle button[data-value="baixa"]{
+  color:#cfc7bd;
 }
 .collection-grid .priority-toggle button:hover{
   background:rgba(255,255,255,.07);
@@ -276,29 +277,57 @@
   transform:translateY(-1px);
 }
 .collection-grid .priority-toggle button.active{
-  background:var(--cream);
-  border-color:var(--cream);
-  color:#080808;
-  box-shadow:0 8px 20px rgba(0,0,0,.26);
+  background:rgba(232,227,218,.13);
+  border-color:rgba(232,227,218,.36);
+  color:#f7f1e8;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.18);
 }
 .collection-grid .priority-toggle button[data-value="alta"].active{
-  background:linear-gradient(180deg,#f4d783,#b8872e);
-  border-color:#f4d783;
-  color:#100b03;
+  background:rgba(232,227,218,.13);
+  border-color:rgba(232,227,218,.36);
+  color:#f7f1e8;
 }
-.collection-grid .priority-toggle button[data-value="avaliando"].active{
-  background:linear-gradient(180deg,#c9d3dc,#7f8a93);
-  border-color:#c9d3dc;
-  color:#080b0d;
+.collection-grid .priority-toggle button[data-value="media"].active{
+  background:rgba(232,227,218,.13);
+  border-color:rgba(232,227,218,.36);
+  color:#f7f1e8;
 }
-.collection-grid .priority-toggle button[data-value="inspiracional"].active{
-  background:linear-gradient(180deg,#bbc7b8,#758272);
-  border-color:#bbc7b8;
-  color:#080c08;
+.collection-grid .priority-toggle button[data-value="baixa"].active{
+  background:rgba(232,227,218,.13);
+  border-color:rgba(232,227,218,.36);
+  color:#f7f1e8;
 }
 .collection-grid .priority-toggle button.active:before{
-  opacity:.85;
-  box-shadow:0 0 0 3px rgba(0,0,0,.08);
+  opacity:1;
+  box-shadow:0 0 0 3px rgba(255,255,255,.07);
+}
+.collection-grid .priority-toggle button.active:after{
+  content:"";
+  position:absolute;
+  left:8px;
+  right:8px;
+  bottom:4px;
+  height:2px;
+  border-radius:999px;
+  background:#f3dfbf;
+}
+.collection-grid .priority-toggle button[data-value="alta"].active:after{
+  background:#20d66b;
+}
+.collection-grid .priority-toggle button[data-value="media"].active:after{
+  background:#ffd43b;
+}
+.collection-grid .priority-toggle button[data-value="baixa"].active:after{
+  background:#ff3f4f;
+}
+.collection-grid .priority-toggle button[data-value="alta"].active:before{
+  background:#20d66b;
+}
+.collection-grid .priority-toggle button[data-value="media"].active:before{
+  background:#ffd43b;
+}
+.collection-grid .priority-toggle button[data-value="baixa"].active:before{
+  background:#ff3f4f;
 }
 .collection-grid .card-controls select,
 .collection-grid .card-controls button,
@@ -1706,4 +1735,320 @@ html[data-theme="light"] .empty-state.styled-empty .empty-preview-card{
   .theme-switch button{
     min-width:0;
   }
+}
+
+/* Dark 2.0: modo noturno mais editorial e menos pesado */
+html:not([data-theme="light"]),
+html[data-theme="dark"]{
+  --black:#12110f;
+  --surface:#191816;
+  --surface2:#201f1c;
+  --surface3:#292722;
+  --white:#f6f1e9;
+  --cream:#eadfce;
+  --muted:#aaa197;
+  --line:rgba(234,223,206,.13);
+  --line2:rgba(234,223,206,.28);
+  --sage:#a8b49f;
+  --bluegray:#8ea0aa;
+}
+html:not([data-theme="light"]) body,
+html[data-theme="dark"] body{
+  background:
+    linear-gradient(180deg,rgba(234,223,206,.055),transparent 220px),
+    linear-gradient(135deg,#151411 0%,#11100f 44%,#181713 100%);
+  color:var(--white);
+}
+html:not([data-theme="light"]) .dashboard-shell,
+html[data-theme="dark"] .dashboard-shell{
+  isolation:isolate;
+}
+html:not([data-theme="light"]) .dashboard-header,
+html[data-theme="dark"] .dashboard-header{
+  border-bottom:1px solid rgba(234,223,206,.08);
+}
+html:not([data-theme="light"]) .brand-area h1,
+html[data-theme="dark"] .brand-area h1{
+  color:#fff7ed;
+  text-shadow:0 18px 50px rgba(0,0,0,.34);
+}
+html:not([data-theme="light"]) .brand-area p,
+html[data-theme="dark"] .brand-area p{
+  color:#b9afa4;
+}
+html:not([data-theme="light"]) .curation-card,
+html:not([data-theme="light"]) .stats-panel,
+html:not([data-theme="light"]) .dash-view,
+html:not([data-theme="light"]) .decisions-panel,
+html:not([data-theme="light"]) .analysis-card,
+html:not([data-theme="light"]) .stat-card,
+html:not([data-theme="light"]) .decision-card,
+html:not([data-theme="light"]) .collection-filter-block,
+html:not([data-theme="light"]) .folder-sidebar,
+html:not([data-theme="light"]) .folder-current,
+html:not([data-theme="light"]) .folder-picker,
+html:not([data-theme="light"]) .store-card,
+html:not([data-theme="light"]) .store-pieces-header,
+html:not([data-theme="light"]) .timeline-item,
+html:not([data-theme="light"]) .notification-panel,
+html:not([data-theme="light"]) .account-panel,
+html:not([data-theme="light"]) .tip-panel,
+html:not([data-theme="light"]) .confirm-panel,
+html[data-theme="dark"] .curation-card,
+html[data-theme="dark"] .stats-panel,
+html[data-theme="dark"] .dash-view,
+html[data-theme="dark"] .decisions-panel,
+html[data-theme="dark"] .analysis-card,
+html[data-theme="dark"] .stat-card,
+html[data-theme="dark"] .decision-card,
+html[data-theme="dark"] .collection-filter-block,
+html[data-theme="dark"] .folder-sidebar,
+html[data-theme="dark"] .folder-current,
+html[data-theme="dark"] .folder-picker,
+html[data-theme="dark"] .store-card,
+html[data-theme="dark"] .store-pieces-header,
+html[data-theme="dark"] .timeline-item,
+html[data-theme="dark"] .notification-panel,
+html[data-theme="dark"] .account-panel,
+html[data-theme="dark"] .tip-panel,
+html[data-theme="dark"] .confirm-panel{
+  border-color:rgba(234,223,206,.14);
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.018)),
+    linear-gradient(180deg,#1c1a17,#151411);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.055),0 20px 46px rgba(0,0,0,.28);
+}
+html:not([data-theme="light"]) .dash-view,
+html[data-theme="dark"] .dash-view{
+  border-radius:22px;
+}
+html:not([data-theme="light"]) .dash-nav,
+html[data-theme="dark"] .dash-nav{
+  border-color:rgba(234,223,206,.16);
+  background:rgba(24,23,20,.82);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 14px 38px rgba(0,0,0,.24);
+}
+html:not([data-theme="light"]) .dash-tab,
+html[data-theme="dark"] .dash-tab{
+  color:#b9afa4;
+}
+html:not([data-theme="light"]) .dash-tab.active,
+html:not([data-theme="light"]) .dash-tab:hover,
+html:not([data-theme="light"]) .solid-btn,
+html:not([data-theme="light"]) .open-link,
+html:not([data-theme="light"]) .filter-chip.active,
+html:not([data-theme="light"]) .theme-switch button.active,
+html:not([data-theme="light"]) .fav-btn.active,
+html:not([data-theme="light"]) .timeline-icon,
+html:not([data-theme="light"]) .store-avatar,
+html[data-theme="dark"] .dash-tab.active,
+html[data-theme="dark"] .dash-tab:hover,
+html[data-theme="dark"] .solid-btn,
+html[data-theme="dark"] .open-link,
+html[data-theme="dark"] .filter-chip.active,
+html[data-theme="dark"] .theme-switch button.active,
+html[data-theme="dark"] .fav-btn.active,
+html[data-theme="dark"] .timeline-icon,
+html[data-theme="dark"] .store-avatar{
+  background:#eadfce;
+  border-color:#eadfce;
+  color:#12110f;
+}
+html:not([data-theme="light"]) .ghost-btn,
+html:not([data-theme="light"]) .filter-chip,
+html:not([data-theme="light"]) .pill,
+html:not([data-theme="light"]) .badge,
+html:not([data-theme="light"]) .tag,
+html:not([data-theme="light"]) .fav-btn,
+html:not([data-theme="light"]) .folder-chip,
+html:not([data-theme="light"]) .card-controls select,
+html:not([data-theme="light"]) .card-controls button,
+html:not([data-theme="light"]) .card-controls a,
+html:not([data-theme="light"]) .theme-switch,
+html:not([data-theme="light"]) .sync-status,
+html:not([data-theme="light"]) .notification-bell,
+html[data-theme="dark"] .ghost-btn,
+html[data-theme="dark"] .filter-chip,
+html[data-theme="dark"] .pill,
+html[data-theme="dark"] .badge,
+html[data-theme="dark"] .tag,
+html[data-theme="dark"] .fav-btn,
+html[data-theme="dark"] .folder-chip,
+html[data-theme="dark"] .card-controls select,
+html[data-theme="dark"] .card-controls button,
+html[data-theme="dark"] .card-controls a,
+html[data-theme="dark"] .theme-switch,
+html[data-theme="dark"] .sync-status,
+html[data-theme="dark"] .notification-bell{
+  border-color:rgba(234,223,206,.16);
+  background:rgba(255,255,255,.04);
+  color:#ede5d9;
+}
+html:not([data-theme="light"]) .ghost-btn:hover,
+html:not([data-theme="light"]) .filter-chip:hover,
+html:not([data-theme="light"]) .card-controls button:hover,
+html:not([data-theme="light"]) .card-controls a:hover,
+html:not([data-theme="light"]) .folder-chip:hover,
+html:not([data-theme="light"]) .folder-chip.active,
+html[data-theme="dark"] .ghost-btn:hover,
+html[data-theme="dark"] .filter-chip:hover,
+html[data-theme="dark"] .card-controls button:hover,
+html[data-theme="dark"] .card-controls a:hover,
+html[data-theme="dark"] .folder-chip:hover,
+html[data-theme="dark"] .folder-chip.active{
+  border-color:rgba(234,223,206,.38);
+  background:rgba(234,223,206,.12);
+  color:#fff7ed;
+}
+html:not([data-theme="light"]) input,
+html:not([data-theme="light"]) select,
+html:not([data-theme="light"]) .account-form input,
+html:not([data-theme="light"]) .profile-field input,
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] .account-form input,
+html[data-theme="dark"] .profile-field input{
+  color-scheme:dark;
+  border-color:rgba(234,223,206,.16);
+  background:#181713;
+  color:#f6f1e9;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+html:not([data-theme="light"]) input:focus,
+html:not([data-theme="light"]) select:focus,
+html:not([data-theme="light"]) .account-form input:focus,
+html:not([data-theme="light"]) .profile-field input:focus,
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] .account-form input:focus,
+html[data-theme="dark"] .profile-field input:focus{
+  border-color:rgba(234,223,206,.44);
+  box-shadow:0 0 0 3px rgba(234,223,206,.08),inset 0 1px 0 rgba(255,255,255,.05);
+}
+html:not([data-theme="light"]) input::placeholder,
+html[data-theme="dark"] input::placeholder{
+  color:#8f867b;
+}
+html:not([data-theme="light"]) .collection-grid .item-card,
+html:not([data-theme="light"]) .item-card,
+html:not([data-theme="light"]) .featured-piece,
+html[data-theme="dark"] .collection-grid .item-card,
+html[data-theme="dark"] .item-card,
+html[data-theme="dark"] .featured-piece{
+  border-color:rgba(234,223,206,.13);
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),
+    #1b1a17;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.045),0 14px 34px rgba(0,0,0,.24);
+}
+html:not([data-theme="light"]) .collection-grid .item-card:hover,
+html:not([data-theme="light"]) .item-card:hover,
+html[data-theme="dark"] .collection-grid .item-card:hover,
+html[data-theme="dark"] .item-card:hover{
+  border-color:rgba(234,223,206,.32);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 22px 48px rgba(0,0,0,.32);
+}
+html:not([data-theme="light"]) .item-thumb,
+html:not([data-theme="light"]) .curation-image,
+html:not([data-theme="light"]) .preview-thumb,
+html:not([data-theme="light"]) .folder-picker-thumb,
+html:not([data-theme="light"]) .notification-thumb,
+html:not([data-theme="light"]) .thumb-placeholder,
+html[data-theme="dark"] .item-thumb,
+html[data-theme="dark"] .curation-image,
+html[data-theme="dark"] .preview-thumb,
+html[data-theme="dark"] .folder-picker-thumb,
+html[data-theme="dark"] .notification-thumb,
+html[data-theme="dark"] .thumb-placeholder{
+  background:#23211d;
+}
+html:not([data-theme="light"]) .collection-grid .item-price,
+html:not([data-theme="light"]) .item-price,
+html:not([data-theme="light"]) .price-stack,
+html[data-theme="dark"] .collection-grid .item-price,
+html[data-theme="dark"] .item-price,
+html[data-theme="dark"] .price-stack{
+  color:#fff8ec;
+}
+html:not([data-theme="light"]) .item-name,
+html:not([data-theme="light"]) .timeline-top strong,
+html:not([data-theme="light"]) .timeline-body p,
+html:not([data-theme="light"]) .decision-card strong,
+html:not([data-theme="light"]) .notification-copy strong,
+html:not([data-theme="light"]) .profile-copy strong,
+html:not([data-theme="light"]) .store-title-row strong,
+html:not([data-theme="light"]) .view-header h2,
+html[data-theme="dark"] .item-name,
+html[data-theme="dark"] .timeline-top strong,
+html[data-theme="dark"] .timeline-body p,
+html[data-theme="dark"] .decision-card strong,
+html[data-theme="dark"] .notification-copy strong,
+html[data-theme="dark"] .profile-copy strong,
+html[data-theme="dark"] .store-title-row strong,
+html[data-theme="dark"] .view-header h2{
+  color:#f8f1e7;
+}
+html:not([data-theme="light"]) .eyebrow,
+html:not([data-theme="light"]) .filter-label,
+html:not([data-theme="light"]) .piece-type,
+html:not([data-theme="light"]) .item-store,
+html:not([data-theme="light"]) .timeline-top span,
+html:not([data-theme="light"]) .folder-picker-head small,
+html:not([data-theme="light"]) .folder-picker-copy small,
+html[data-theme="dark"] .eyebrow,
+html[data-theme="dark"] .filter-label,
+html[data-theme="dark"] .piece-type,
+html[data-theme="dark"] .item-store,
+html[data-theme="dark"] .timeline-top span,
+html[data-theme="dark"] .folder-picker-head small,
+html[data-theme="dark"] .folder-picker-copy small{
+  color:#a99f93;
+}
+html:not([data-theme="light"]) .curation-note,
+html:not([data-theme="light"]) .stat-card small,
+html:not([data-theme="light"]) .analysis-card small,
+html:not([data-theme="light"]) .timeline-body small,
+html:not([data-theme="light"]) .notification-copy small,
+html:not([data-theme="light"]) .note,
+html:not([data-theme="light"]) .item-note,
+html[data-theme="dark"] .curation-note,
+html[data-theme="dark"] .stat-card small,
+html[data-theme="dark"] .analysis-card small,
+html[data-theme="dark"] .timeline-body small,
+html[data-theme="dark"] .notification-copy small,
+html[data-theme="dark"] .note,
+html[data-theme="dark"] .item-note{
+  color:#b5aba0;
+}
+html:not([data-theme="light"]) .price-drop-pill,
+html[data-theme="dark"] .price-drop-pill{
+  border-color:rgba(168,180,159,.44);
+  background:rgba(168,180,159,.13);
+  color:#dce9d3;
+}
+html:not([data-theme="light"]) .badge.alert,
+html[data-theme="dark"] .badge.alert{
+  background:#a8b49f;
+  border-color:#a8b49f;
+  color:#12110f;
+}
+html:not([data-theme="light"]) .sale-badge,
+html:not([data-theme="light"]) .sale-pill,
+html[data-theme="dark"] .sale-badge,
+html[data-theme="dark"] .sale-pill{
+  background:linear-gradient(180deg,#c33a2c,#8f2018);
+  border-color:rgba(255,244,232,.74);
+  box-shadow:0 12px 26px rgba(195,58,44,.18),0 1px 0 rgba(255,255,255,.18) inset;
+}
+html:not([data-theme="light"]) .empty-state.styled-empty,
+html[data-theme="dark"] .empty-state.styled-empty{
+  border-color:rgba(234,223,206,.15);
+  background:
+    linear-gradient(180deg,rgba(234,223,206,.08),rgba(234,223,206,.025)),
+    #1a1916;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 20px 44px rgba(0,0,0,.22);
+}
+html:not([data-theme="light"]) .empty-state.styled-empty > strong,
+html[data-theme="dark"] .empty-state.styled-empty > strong{
+  color:#fff5e8;
 }

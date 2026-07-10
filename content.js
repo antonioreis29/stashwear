@@ -48,6 +48,20 @@ function getScraper() {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
   }
 
+  function isMercadoLivrePage() {
+    const host = location.hostname.replace(/^www\./, '').toLowerCase();
+    return host === 'mercadolivre.com.br' || host.endsWith('.mercadolivre.com.br') || host === 'mercadolibre.com' || host.endsWith('.mercadolibre.com');
+  }
+
+  function isMercadoLivreProductUrl() {
+    if (!isMercadoLivrePage()) return false;
+    return /\/MLB-\d+|\/p\/MLB\d+|\/MLB\d+/i.test(location.pathname);
+  }
+
+  function shouldBlockInlineSaveOnCurrentPage() {
+    return isMercadoLivrePage() && !isMercadoLivreProductUrl();
+  }
+
   function normalizeComparableUrl(url) {
     try {
       const parsed = new URL(url);
@@ -211,7 +225,7 @@ function getScraper() {
         note: '',
         tags: [],
         favorite: false,
-        curationPriority: 'avaliando',
+        curationPriority: 'media',
         buyThisMonth: true,
         priceHistory: parsedPrice !== null ? [{ price, checkedAt: now }] : [],
         savedAt: now
@@ -339,6 +353,11 @@ function getScraper() {
   }
 
   function renderProduct(product) {
+    if (shouldBlockInlineSaveOnCurrentPage()) {
+      currentProduct = null;
+      removeHost();
+      return;
+    }
     const host = ensureHost();
     const root = host.shadowRoot;
     root.querySelector('.name').textContent = product?.name || 'Peca detectada';
@@ -384,7 +403,7 @@ function getScraper() {
     detectTimer = setTimeout(async () => {
       detectTimer = null;
       if (!document.body || !/^https?:\/\//i.test(location.href)) return;
-      if (isBlockedPage()) {
+      if (isBlockedPage() || shouldBlockInlineSaveOnCurrentPage()) {
         currentProduct = null;
         detectionAttempts = 0;
         removeHost();

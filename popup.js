@@ -200,22 +200,29 @@ function getHighestPrice(item) {
   const values = trustedPriceValues(item, true);
   return values.length ? Math.max(...values) : null;
 }
+function normalizePriorityLevel(value) {
+  if (value === 'alta' || value === 'media' || value === 'baixa') return value;
+  if (value === 'avaliando') return 'media';
+  if (value === 'inspiracional') return 'baixa';
+  return '';
+}
 function getPriorityLevel(item) {
-  if (item.curationPriority) return item.curationPriority;
+  const normalized = normalizePriorityLevel(item.curationPriority);
+  if (normalized) return normalized;
   if (item.buyThisMonth) return 'alta';
   if (item.priority === 'quero muito') return 'alta';
-  if (item.priority === 'talvez') return 'inspiracional';
-  return 'avaliando';
+  if (item.priority === 'talvez') return 'baixa';
+  return 'media';
 }
 function getPriorityLabel(item) {
   const level = getPriorityLevel(item);
-  if (level === 'alta') return '⭐ Prioridade Alta';
-  if (level === 'inspiracional') return '○ Inspiracional';
-  return '● Avaliando';
+  if (level === 'alta') return 'Prioridade Alta';
+  if (level === 'baixa') return 'Prioridade Baixa';
+  return 'Prioridade Média';
 }
 function getNextPriority(level) {
-  if (level === 'alta') return 'avaliando';
-  if (level === 'avaliando') return 'inspiracional';
+  if (level === 'alta') return 'media';
+  if (level === 'media') return 'baixa';
   return 'alta';
 }
 function hasPriceDrop(item) {
@@ -268,7 +275,7 @@ function getCurationScore(item, allItems = []) {
   let score = 0;
   if (item.favorite) score += 50;
   if (priority === 'alta') score += 30;
-  else if (priority === 'avaliando') score += 15;
+  else if (priority === 'media') score += 15;
   if (hasPriceDrop(item)) score += 15;
   if (isRecentlySaved(item)) score += 10;
   if (price && premiumCut && price >= premiumCut) score += 20;
@@ -282,7 +289,7 @@ function pickCurrentCuration(items) {
     })[0] || items[0];
 }
 function sortItems(items) {
-  const priority = { 'alta': 0, 'avaliando': 1, 'inspiracional': 2, 'quero muito': 0, 'normal': 1, 'talvez': 2, '': 3 };
+  const priority = { 'alta': 0, 'media': 1, 'baixa': 2, 'avaliando': 1, 'inspiracional': 2, 'quero muito': 0, 'normal': 1, 'talvez': 2, '': 3 };
   return [...items].sort((a, b) => {
     if (activeSort === 'date') return (b.savedAt || 0) - (a.savedAt || 0);
     if (activeSort === 'price') return (parsePrice(a.price) || 0) - (parsePrice(b.price) || 0);
@@ -591,7 +598,7 @@ async function renderCollectionIntelligence() {
   const favCategory = topEntries(items, 'category', 1)[0];
   const brands = topEntries(items, 'store', 5);
   const dropCount = items.filter(item => hasPriceDrop(item) || isOnSale(item)).length;
-  const priorityCount = items.filter(i => getPriorityLevel(i) !== 'inspiracional').length;
+  const priorityCount = items.filter(i => getPriorityLevel(i) !== 'baixa').length;
   const highPriorityCount = items.filter(i => getPriorityLevel(i) === 'alta').length;
   const favoriteCount = items.filter(i => i.favorite).length;
   const historyCount = items.reduce((acc, i) => acc + priceHistory(i).length, 0);
@@ -642,7 +649,7 @@ function itemCardHtml(item, realIndex, compact = false) {
         ${!compact && item.note ? `<div class="item-note">${escapeHtml(item.note)}</div>` : ''}
         <div class="item-actions">
           <a class="btn-open" href="${escapeHtml(item.url)}" target="_blank">Abrir ↗</a>
-          <button class="btn-buy-month ${priorityLevel !== 'inspiracional' ? 'active' : ''}" data-index="${realIndex}">${getPriorityLabel(item)}</button>
+          <button class="btn-buy-month ${priorityLevel !== 'baixa' ? 'active' : ''}" data-index="${realIndex}">${getPriorityLabel(item)}</button>
           <button class="btn-delete" data-index="${realIndex}">Remover</button>
         </div>
       </div>
@@ -665,7 +672,7 @@ function bindItemActions(root) {
     if (item) {
       const next = getNextPriority(getPriorityLevel(item));
       item.curationPriority = next;
-      item.buyThisMonth = next !== 'inspiracional';
+      item.buyThisMonth = next !== 'baixa';
       await logActivity({ type: 'prioridade', itemName: item.name, detail: getPriorityLabel(item), url: item.url, imageUrl: item.imageUrl });
     }
     await setItems(all); refreshAll();
@@ -717,9 +724,9 @@ async function renderPriorityFilterBar(allItems) {
   const activeItems = allItems;
   const options = [
     { key: 'todos', label: 'Todas', count: activeItems.length },
-    { key: 'alta', label: '⭐ Prioridade Alta', count: activeItems.filter(i => getPriorityLevel(i) === 'alta').length },
-    { key: 'avaliando', label: '● Avaliando', count: activeItems.filter(i => getPriorityLevel(i) === 'avaliando').length },
-    { key: 'inspiracional', label: '○ Inspiracional', count: activeItems.filter(i => getPriorityLevel(i) === 'inspiracional').length }
+    { key: 'alta', label: 'Alta', count: activeItems.filter(i => getPriorityLevel(i) === 'alta').length },
+    { key: 'media', label: 'Média', count: activeItems.filter(i => getPriorityLevel(i) === 'media').length },
+    { key: 'baixa', label: 'Baixa', count: activeItems.filter(i => getPriorityLevel(i) === 'baixa').length }
   ];
   bar.innerHTML = options.map(opt => `
     <button class="priority-filter-chip ${activePriorityFilter === opt.key ? 'active' : ''}" data-filter="${opt.key}">
@@ -740,7 +747,7 @@ async function renderShoppingList() {
     .filter(i => activePriorityFilter === 'todos' || getPriorityLevel(i) === activePriorityFilter)
     .sort((a, b) => getCurationScore(b, allItems) - getCurationScore(a, allItems));
   if (!items.length) {
-    const labels = { todos: 'prioridades', alta: 'prioridade alta', avaliando: 'avaliando', inspiracional: 'inspiracional' };
+    const labels = { todos: 'prioridades', alta: 'prioridade alta', media: 'prioridade média', baixa: 'prioridade baixa' };
     list.innerHTML = emptyStateHtml(`Nenhuma peça em ${labels[activePriorityFilter]}.`, 'Altere a prioridade da peça ao salvar ou pelo botão dentro do card.');
     return;
   }
@@ -838,7 +845,7 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
         note: document.getElementById('item-note').value.trim() || old.note,
         tags: tags.length ? tags : getTags(old),
         curationPriority: document.getElementById('item-buy-this-month').value || getPriorityLevel(old),
-        buyThisMonth: (document.getElementById('item-buy-this-month').value || getPriorityLevel(old)) !== 'inspiracional',
+        buyThisMonth: (document.getElementById('item-buy-this-month').value || getPriorityLevel(old)) !== 'baixa',
         priceHistory: history,
         updatedAt: now
       };
@@ -854,8 +861,8 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
         note: document.getElementById('item-note').value.trim(),
         tags,
         favorite: false,
-        curationPriority: document.getElementById('item-buy-this-month').value || 'avaliando',
-        buyThisMonth: (document.getElementById('item-buy-this-month').value || 'avaliando') !== 'inspiracional',
+        curationPriority: document.getElementById('item-buy-this-month').value || 'media',
+        buyThisMonth: (document.getElementById('item-buy-this-month').value || 'media') !== 'baixa',
         priceHistory: price ? [{ price, checkedAt: now }] : [],
         savedAt: now
       });
@@ -883,7 +890,7 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
       const field = document.getElementById(id);
       if (field) field.value = '';
     });
-    document.getElementById('item-buy-this-month').value = 'avaliando';
+    document.getElementById('item-buy-this-month').value = 'media';
     await refreshAll();
     btn.textContent = existingIndex >= 0 ? '✓ Peça atualizada' : (price ? '✓ Salva com preço' : '✓ Peça salva');
     setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1400);

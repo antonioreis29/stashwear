@@ -90,6 +90,15 @@ function StashWearScraper() {
     return /\/MLB-\d+|\/p\/MLB\d+|\/MLB\d+/i.test(path);
   }
 
+  function isMercadoLivreListingUrl() {
+    if (!isMercadoLivrePage()) return false;
+    if (isMercadoLivreProductUrl()) return false;
+    const path = location.pathname.toLowerCase();
+    return path === '/'
+      || /\/(?:ofertas|lista|categorias?|category|busca|search|lojas?|shop|mais-vendidos|mais-vendido|promocoes?|promocao|outlet)(?:\/|$)/i.test(path)
+      || /(?:^|[?&])(?:q|as_word|search|category_id|deal_print_id)=/i.test(location.search);
+  }
+
   function metaContent(selectors) {
     for (const selector of selectors) {
       const el = document.querySelector(selector);
@@ -273,6 +282,7 @@ function StashWearScraper() {
 
   function findMercadoLivrePrice() {
     if (!isMercadoLivrePage()) return null;
+    if (!isMercadoLivreProductUrl()) return null;
 
     const selectors = [
       '.ui-pdp-price__second-line .andes-money-amount:not(.andes-money-amount--previous)',
@@ -406,6 +416,7 @@ function StashWearScraper() {
       '[data-testid*="variant" i]'
     ]);
     const mercadoLivreProductUrl = isMercadoLivreProductUrl();
+    const mercadoLivreListingUrl = isMercadoLivreListingUrl();
     const productUrl = mercadoLivreProductUrl || /\/(?:p|produto|product|products|item|itens?)\/|[?&](?:sku|productId|pid|variant)=/i.test(location.href);
     const productLikeCount = countProductLikeElements();
     const manyProducts = productLikeCount >= 4;
@@ -429,9 +440,9 @@ function StashWearScraper() {
       (saleInfo?.onSale ? 1 : 0) -
       (negativeUrl || negativeTitle ? 2 : 0)
     );
-    const isLandingLike = negativeUrl || negativeTitle;
+    const isLandingLike = negativeUrl || negativeTitle || mercadoLivreListingUrl;
     const hasProductEvidence = productMeta || productSchema || productUrl || skuText || buyButton || productDetails;
-    const isListingLike = manyProducts && isLandingLike && !strongProductEvidence && !mercadoLivreProductUrl;
+    const isListingLike = mercadoLivreListingUrl || (manyProducts && isLandingLike && !strongProductEvidence && !mercadoLivreProductUrl);
     const minConfidence = strongProductEvidence ? 4 : 5;
     const isProductPage = hasCoreData && hasProductEvidence && confidenceScore >= minConfidence && !isListingLike && !(isLandingLike && !strongProductEvidence && !buyButton);
     let validationReason = 'ok';
@@ -447,7 +458,7 @@ function StashWearScraper() {
       isProductPage,
       validationReason,
       confidenceScore,
-      productSignals: { productSchema, productMeta, buyButton, skuText, productUrl, mercadoLivreProductUrl, productDetails, optionControls, commerceText, negativeUrl, negativeTitle, productLikeCount, manyProducts, score }
+      productSignals: { productSchema, productMeta, buyButton, skuText, productUrl, mercadoLivreProductUrl, mercadoLivreListingUrl, productDetails, optionControls, commerceText, negativeUrl, negativeTitle, productLikeCount, manyProducts, score }
     };
   }
 
@@ -691,6 +702,23 @@ function StashWearScraper() {
         isProductPage: false,
         isFashion: false,
         validationReason: 'blocked_page'
+      };
+    }
+    if (isMercadoLivrePage() && !isMercadoLivreProductUrl()) {
+      return {
+        name: null,
+        price: null,
+        priceSource: 'none',
+        saleInfo: { onSale: false, originalPrice: null, currentPrice: null, discountPercent: null },
+        imageUrl: null,
+        isProductPage: false,
+        isFashion: false,
+        validationReason: 'listing_or_multiple_products',
+        confidenceScore: 0,
+        productSignals: {
+          mercadoLivreProductUrl: false,
+          mercadoLivreListingUrl: isMercadoLivreListingUrl()
+        }
       };
     }
 

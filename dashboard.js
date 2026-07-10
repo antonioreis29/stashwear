@@ -179,17 +179,24 @@ function getItemType(item) {
   return found ? normalizeTypeLabel(found) : 'Outro';
 }
 function priceHistory(item) { return Array.isArray(item.priceHistory) ? item.priceHistory : []; }
+function normalizePriorityLevel(value) {
+  if (value === 'alta' || value === 'media' || value === 'baixa') return value;
+  if (value === 'avaliando') return 'media';
+  if (value === 'inspiracional') return 'baixa';
+  return '';
+}
 function getPriorityLevel(item) {
-  if (item.curationPriority) return item.curationPriority;
+  const normalized = normalizePriorityLevel(item.curationPriority);
+  if (normalized) return normalized;
   if (item.buyThisMonth === true) return 'alta';
-  if (item.buyThisMonth === false) return 'inspiracional';
-  return 'avaliando';
+  if (item.buyThisMonth === false) return 'baixa';
+  return 'media';
 }
 function priorityLabel(item) {
   const level = getPriorityLevel(item);
-  if (level === 'alta') return '⭐ Prioridade Alta';
-  if (level === 'inspiracional') return '○ Inspiracional';
-  return '● Avaliando';
+  if (level === 'alta') return 'Prioridade Alta';
+  if (level === 'baixa') return 'Prioridade Baixa';
+  return 'Prioridade Média';
 }
 function activityIcon(type) {
   return ({ salvo: '+', atualizada: '↻', queda_preco: '↓', preco_atualizado: '↕', favorita: '♥', prioridade: '★', status: '✓', removida: '×', loja: '⌂' })[type] || '•';
@@ -819,7 +826,7 @@ function getCurationScore(item, allItems = state.items) {
   let score = 0;
   if (item.favorite) score += 50;
   if (getPriorityLevel(item) === 'alta') score += 40;
-  if (getPriorityLevel(item) === 'avaliando') score += 16;
+  if (getPriorityLevel(item) === 'media') score += 16;
   if (hasPriceDrop(item)) score += 15;
   if (isOnSale(item)) score += 12;
   if (isRecent(item)) score += 10;
@@ -946,12 +953,12 @@ function renderDecisions() {
   if (!el) return;
   const openItems = state.items;
   const buyNow = openItems.filter(item => getPriorityLevel(item) === 'alta' || hasPriceDrop(item) || isOnSale(item));
-  const reviewing = openItems.filter(item => getPriorityLevel(item) === 'avaliando');
+  const reviewing = openItems.filter(item => getPriorityLevel(item) === 'media');
   const priceRadar = openItems.filter(item => hasPriceDrop(item) || isOnSale(item));
   const organize = getUnorganizedItems();
   const cards = [
     { key:'buy', label:'Comprar agora', value:buyNow.length, desc:'Prioridade alta ou preço em queda', items:buyNow, actionLabel:'Ver prioridades' },
-    { key:'review', label:'Revisar', value:reviewing.length, desc:'Peças ainda em avaliação', items:reviewing, actionLabel:'Abrir avaliando' },
+    { key:'review', label:'Revisar', value:reviewing.length, desc:'Peças com prioridade média', items:reviewing, actionLabel:'Abrir médias' },
     { key:'organize', label:'Organizar', value:organize.length, desc:'Sem tipo, loja ou pasta', items:organize, actionLabel:'Limpar coleção' },
     { key:'price', label:'Radar de preço', value:priceRadar.length, desc:'Quedas e metas de preço', items:priceRadar, actionLabel:'Ver oportunidades' }
   ];
@@ -969,7 +976,7 @@ function renderDecisions() {
       return;
     }
     if (decision === 'review') {
-      state.priorityFilter = 'avaliando';
+      state.priorityFilter = 'media';
       activateView('priorities');
       renderPriorities();
       return;
@@ -1037,8 +1044,8 @@ function itemCardHtml(item, index, options = {}) {
       </div>
       <div class="priority-toggle" aria-label="Prioridade da peça">
         <button class="${getPriorityLevel(item)==='alta'?'active':''}" data-action="priority" data-value="alta" title="Prioridade Alta"><span>Alta</span></button>
-        <button class="${getPriorityLevel(item)==='avaliando'?'active':''}" data-action="priority" data-value="avaliando" title="Avaliando"><span>Aval.</span></button>
-        <button class="${getPriorityLevel(item)==='inspiracional'?'active':''}" data-action="priority" data-value="inspiracional" title="Inspiracional"><span>Insp.</span></button>
+        <button class="${getPriorityLevel(item)==='media'?'active':''}" data-action="priority" data-value="media" title="Prioridade Média"><span>Média</span></button>
+        <button class="${getPriorityLevel(item)==='baixa'?'active':''}" data-action="priority" data-value="baixa" title="Prioridade Baixa"><span>Baixa</span></button>
       </div>
       <div class="card-controls">
         ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">Abrir</a>` : '<button disabled>Abrir</button>'}
@@ -1098,9 +1105,9 @@ function renderCollection() {
 function renderPriorityFilters() {
   const options = [
     ['todos', 'Todas', state.items.length],
-    ['alta', 'Prioridade Alta', state.items.filter(i => getPriorityLevel(i) === 'alta').length],
-    ['avaliando', 'Avaliando', state.items.filter(i => getPriorityLevel(i) === 'avaliando').length],
-    ['inspiracional', 'Inspiracional', state.items.filter(i => getPriorityLevel(i) === 'inspiracional').length]
+    ['alta', 'Alta', state.items.filter(i => getPriorityLevel(i) === 'alta').length],
+    ['media', 'Média', state.items.filter(i => getPriorityLevel(i) === 'media').length],
+    ['baixa', 'Baixa', state.items.filter(i => getPriorityLevel(i) === 'baixa').length]
   ];
   document.getElementById('priority-filter-dashboard').innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.priorityFilter===key?'active':''}" data-priority="${key}">${label} · ${count}</button>`).join('');
   document.querySelectorAll('[data-priority]').forEach(btn => btn.addEventListener('click', () => { state.priorityFilter = btn.dataset.priority; renderPriorities(); }));
@@ -1433,7 +1440,7 @@ function bindCardActions(container, options = {}) {
     });
     card.querySelectorAll('[data-action="priority"]').forEach(btn => btn.addEventListener('click', async () => {
       item.curationPriority = btn.dataset.value;
-      item.buyThisMonth = btn.dataset.value !== 'inspiracional';
+      item.buyThisMonth = btn.dataset.value !== 'baixa';
       item.updatedAt = Date.now();
       await setItems(state.items);
       await logActivity({ type:'prioridade', itemName:item.name, detail:`Nova prioridade: ${priorityLabel(item)}`, url:item.url });
@@ -1522,6 +1529,15 @@ document.getElementById('account-form')?.addEventListener('submit', async event 
   await handleAccountAuth('login');
 });
 document.getElementById('account-password')?.addEventListener('input', updatePasswordStrength);
+document.querySelectorAll('#account-password, #account-password-confirm').forEach(input => {
+  input.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    const form = input.closest('form');
+    if (!form || input.disabled || input.hidden) return;
+    event.preventDefault();
+    form.requestSubmit?.(document.getElementById('btn-account-login'));
+  });
+});
 document.querySelectorAll('[data-password-toggle]').forEach(button => button.addEventListener('click', () => {
   const input = document.getElementById(button.dataset.passwordToggle);
   if (!input) return;
