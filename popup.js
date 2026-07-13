@@ -337,6 +337,20 @@ function hideValidationNotice() {
   notice.style.display = 'none';
 }
 
+function showToast(message, type = 'info') {
+  const stack = document.getElementById('popup-toast-stack');
+  if (!stack) return;
+  const toast = document.createElement('div');
+  toast.className = `popup-toast ${type}`;
+  toast.textContent = message;
+  stack.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 220);
+  }, 2400);
+}
+
 async function scrapeWithSharedDetector(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
@@ -442,7 +456,10 @@ function renderSavePreview(tab, data = {}) {
   const categoryEl = document.getElementById('preview-category');
   const thumb = document.querySelector('#auto-detect-preview .preview-thumb');
   if (nameEl) nameEl.textContent = name;
-  if (priceEl) priceEl.textContent = price ? `${price}${saleText}` : 'Sem preco detectado';
+  if (priceEl) {
+    priceEl.textContent = price ? `${price}${saleText}` : 'Sem preco detectado';
+    priceEl.classList.toggle('price-missing', !price);
+  }
   if (storeEl) storeEl.textContent = storeName;
   if (categoryEl) categoryEl.textContent = category;
   if (thumb) {
@@ -892,10 +909,12 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
     });
     document.getElementById('item-buy-this-month').value = 'media';
     await refreshAll();
-    btn.textContent = existingIndex >= 0 ? '✓ Peça atualizada' : (price ? '✓ Salva com preço' : '✓ Peça salva');
+    showToast(existingIndex >= 0 ? 'Peça atualizada na coleção.' : 'Peça salva na coleção.');
+    btn.textContent = existingIndex >= 0 ? 'Atualizada' : 'Salva';
     setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1400);
   } catch (e) {
     btn.textContent = 'Erro ao salvar';
+    showToast('Nao foi possivel salvar esta peça.', 'danger');
     setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1800);
   }
 });

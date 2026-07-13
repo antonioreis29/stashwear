@@ -29,14 +29,6 @@
       </div>
     </header>
 
-    <section class="save-strip">
-      <div class="save-copy">
-        <strong>Salvar peça atual</strong>
-        <span>Captura imagem, loja e preço automaticamente.</span>
-      </div>
-      <button id="btn-save-item" class="primary-action">Salvar</button>
-    </section>
-
     <section id="auto-detect-preview" class="auto-detect-preview">
       <div class="preview-thumb"><div class="thumb-placeholder">◇</div></div>
       <div class="preview-copy">
@@ -48,6 +40,14 @@
           <span id="preview-category">Tipo automatico</span>
         </div>
       </div>
+    </section>
+
+    <section class="save-strip">
+      <div class="save-copy">
+        <strong>Pronta para a curadoria</strong>
+        <span>Confirme para salvar a peça detectada.</span>
+      </div>
+      <button id="btn-save-item" class="primary-action">Salvar peça</button>
     </section>
 
     <section class="dashboard-strip">
@@ -71,7 +71,7 @@
 
     <section class="quick-edit-panel">
       <details>
-        <summary>Ajustes opcionais</summary>
+        <summary>Mais opções</summary>
         <div class="form-grid">
           <div class="field-group span-2 auto-field">
             <label>Nome</label>
@@ -213,6 +213,8 @@
       <button id="onboarding-close">Começar</button>
     </div>
   </div>
+
+  <div id="popup-toast-stack" class="popup-toast-stack" aria-live="polite" aria-atomic="true"></div>
 
   <script src="stashwear-scraper.js"></script>
   <script src="popup.js"></script>

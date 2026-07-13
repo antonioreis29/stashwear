@@ -33,7 +33,8 @@ let state = {
   selectedFolderId: null,
   folderPickerOpen: false,
   editingFolderId: null,
-  editingStoreIndex: null
+  editingStoreIndex: null,
+  isLoading: true
 };
 let accountMode = 'login';
 let pendingRecoverySession = null;
@@ -813,12 +814,27 @@ function priceMemoryHtml(item) {
 }
 function emptyStateHtml(title = 'Nenhuma peça encontrada.', message = 'Salve peças pelo popup ou ajuste os filtros.') {
   return `<div class="empty-state styled-empty">
-    <div class="empty-preview-card">
-      <span></span><strong></strong><em></em>
-    </div>
+    <svg class="empty-closet-icon" viewBox="0 0 120 120" aria-hidden="true">
+      <rect x="20" y="18" width="80" height="88" rx="18"></rect>
+      <path d="M38 44h44M60 44v42M42 62c9-7 27-7 36 0"></path>
+      <path d="M45 82h30"></path>
+    </svg>
     <strong>${escapeHtml(title)}</strong>
     <small>${escapeHtml(message)}</small>
+    <button class="empty-cta" type="button" data-action="show-save-tip">Como salvar a primeira peça</button>
   </div>`;
+}
+function skeletonGridHtml(count = 8) {
+  return Array.from({ length: count }, () => `<article class="item-card skeleton-card" aria-hidden="true">
+    <div class="item-thumb skeleton-shimmer"></div>
+    <div class="item-body">
+      <div class="skeleton-line title skeleton-shimmer"></div>
+      <div class="skeleton-line short skeleton-shimmer"></div>
+      <div class="skeleton-pills">
+        <span class="skeleton-shimmer"></span><span class="skeleton-shimmer"></span><span class="skeleton-shimmer"></span>
+      </div>
+    </div>
+  </article>`).join('');
 }
 function getCurationScore(item, allItems = state.items) {
   const price = trustedCurrentPrice(item).value || 0;
@@ -990,8 +1006,19 @@ function renderDecisions() {
 function renderCuration() {
   const featured = pickCurrentCuration(state.items);
   const el = document.getElementById('curation-card');
+  if (state.isLoading) {
+    el.innerHTML = `<div class="curation-inner skeleton-curation" aria-hidden="true">
+      <div class="curation-image skeleton-shimmer"></div>
+      <div class="curation-copy">
+        <div><span class="skeleton-line short skeleton-shimmer"></span><h2 class="skeleton-block skeleton-shimmer"></h2><div class="skeleton-pills"><span class="skeleton-shimmer"></span><span class="skeleton-shimmer"></span></div></div>
+        <span class="skeleton-button skeleton-shimmer"></span>
+      </div>
+    </div>`;
+    return;
+  }
   if (!featured) {
-    el.innerHTML = `<div class="curation-empty"><span class="eyebrow">Curadoria Atual</span><h2>Sua coleção ainda está vazia</h2><p class="curation-note">Salve uma peça pelo popup para começar.</p></div>`;
+    el.innerHTML = emptyStateHtml('Sua coleção ainda está vazia.', 'Abra uma página de produto e salve a primeira peça pelo popup do StashWear.');
+    el.querySelector('[data-action="show-save-tip"]')?.addEventListener('click', showPopupTipDialog);
     return;
   }
   const score = getCurationScore(featured);
@@ -1027,6 +1054,7 @@ function itemCardHtml(item, index, options = {}) {
   const onSale = isOnSale(item);
   const displayName = cleanDisplayName(item.name);
   const nameClass = getNameSizeClass(displayName);
+  const priority = getPriorityLevel(item);
   return `<article class="item-card ${nameClass}" data-index="${index}">
     <div class="item-thumb">
       ${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : '<div class="thumb-placeholder">◇</div>'}
@@ -1038,6 +1066,7 @@ function itemCardHtml(item, index, options = {}) {
       <div class="item-meta"><span class="item-store">${escapeHtml(item.store || item.category || 'Sem loja')}</span>${priceDisplayHtml(item)}</div>
       ${priceMemoryHtml(item)}
       <div class="card-surface-row">
+        <span class="priority-badge priority-${priority}">${priorityLabel(item)}</span>
         <span class="piece-type">${escapeHtml(getItemType(item))}</span>
         ${onSale ? `<span class="sale-pill">${escapeHtml(saleBadgeText(item))}</span>` : ''}
         ${dropped && lowest !== null && price !== null ? `<span class="price-drop-pill">Preço caiu</span>` : ''}
@@ -1056,8 +1085,13 @@ function itemCardHtml(item, index, options = {}) {
 }
 function renderGrid(id, items, options = {}) {
   const el = document.getElementById(id);
+  if (state.isLoading) {
+    el.innerHTML = skeletonGridHtml();
+    return;
+  }
   if (!items.length) {
     el.innerHTML = emptyStateHtml();
+    el.querySelector('[data-action="show-save-tip"]')?.addEventListener('click', showPopupTipDialog);
     return;
   }
   el.innerHTML = items.map(item => itemCardHtml(item, state.items.findIndex(i => itemKey(i) === itemKey(item)), options)).join('');
@@ -1409,9 +1443,12 @@ async function loadData() {
   state.stores = await getStores();
   state.notifications = await getNotifications();
   ensureSelectedFolder();
+  state.isLoading = false;
   renderAll();
 }
 async function bootData() {
+  state.isLoading = true;
+  renderAll();
   const session = await window.StashWearSync?.getSession?.();
   if (session?.accessToken) {
     try {

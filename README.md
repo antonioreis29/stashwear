@@ -25,7 +25,7 @@
 
 StashWear e uma extensao de navegador criada para quem pesquisa, compara e monta uma colecao pessoal de moda pela internet.
 
-Ela ajuda o usuario a salvar pecas de diferentes lojas, organizar desejos por prioridade, acompanhar preco alvo e visualizar tudo em um painel mais bonito do que uma lista perdida de links.
+Ela ajuda o usuario a salvar pecas de diferentes lojas, organizar desejos por prioridade, acompanhar variacoes de preco e visualizar tudo em um painel mais bonito do que uma lista perdida de links.
 
 > Pense nela como uma prateleira curada para roupas, tenis, bolsas, acessorios e qualquer peca que ainda esta em avaliacao antes da compra.
 
@@ -40,7 +40,7 @@ Permitir que o usuario salve, organize e acompanhe produtos de moda online em um
 | Encontrou uma peca | Salva nome, preco, imagem, loja e link pelo popup da extensao |
 | Quer comparar depois | Mostra tudo em um dashboard visual, com filtros e busca |
 | Esta montando prioridades | Marca pecas como prioridade alta, avaliando ou inspiracional |
-| Esperando uma promocao | Permite acompanhar preco alvo e queda de preco |
+| Esperando uma promocao | Acompanha historico, quedas de preco e itens que entram ou saem de sale |
 | Pesquisa em varias lojas | Agrupa por loja, tipo de peca, favoritos e pastas |
 | Usa mais de um dispositivo | Sincroniza a colecao com conta Supabase |
 
@@ -60,12 +60,14 @@ Permitir que o usuario salve, organize e acompanhe produtos de moda online em um
 
 ## Fluxo de uso
 
-1. Abra uma loja online.
+1. Abra a pagina individual de uma peca em uma loja online.
 2. Clique no icone do StashWear no navegador.
-3. Salve a peca atual.
-4. Abra o dashboard para comparar, filtrar e decidir.
-5. Defina prioridades e preco alvo.
-6. Entre na conta para sincronizar sua colecao.
+3. Revise os dados detectados automaticamente, como nome, preco, imagem, loja e tipo.
+4. Complete a peca com prioridade, notas e etiquetas, se quiser.
+5. Salve a peca e acompanhe sua colecao pelo popup ou pelo dashboard.
+6. Use filtros, pastas, favoritos, timeline e analise para comparar e decidir.
+7. Deixe o StashWear acompanhar quedas de preco e mudancas de promocao automaticamente.
+8. Entre na conta para sincronizar sua colecao com Supabase.
 
 ## Dados coletados
 
