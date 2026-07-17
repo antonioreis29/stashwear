@@ -16,6 +16,14 @@
   "background": {
     "service_worker": "background.js"
   },
+  "commands": {
+    "save-current-piece": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Salvar peca atual no StashWear"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

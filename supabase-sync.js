@@ -324,6 +324,12 @@
     return rows?.[0] || null;
   }
 
+  async function syncNow() {
+    await requireSession();
+    const payload = await collectLocalData();
+    return pushPayload(payload);
+  }
+
   async function syncAfterLogin({ saveLocal = false } = {}) {
     await requireSession();
     const localPayload = await collectLocalData();
@@ -356,6 +362,7 @@
     setPasswordFromRecovery,
     signOut,
     updateDisplayName,
+    syncNow,
     syncAfterLogin,
   };
 })();

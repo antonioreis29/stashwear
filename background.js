@@ -4,6 +4,7 @@ const MAX_ITEMS_PER_RUN = 25;
 const SYNC_DATA_KEYS = ['items', 'folders', 'stores', 'activities', 'deletedItemKeys'];
 const SYNC_SESSION_KEY = 'stashwearSupabaseSession';
 const SYNC_STATUS_KEY = 'stashwearSyncStatus';
+const PENDING_SYNC_KEY = 'stashwearPendingSyncItems';
 const SYNC_DEBOUNCE_MS = 1800;
 const SYNC_TOKEN_REFRESH_MARGIN_SECONDS = 120;
 
@@ -22,6 +23,26 @@ const getNotifications = () => getStorage('notifications');
 const setNotifications = notifications => setStorage('notifications', notifications);
 
 const getStorageObject = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
+
+function itemKey(item) {
+  return String(item?.savedAt || item?.url || item?.id || item?.name || '');
+}
+
+async function getPendingSyncItems() {
+  const data = await getStorageObject(PENDING_SYNC_KEY);
+  return Array.isArray(data[PENDING_SYNC_KEY]) ? data[PENDING_SYNC_KEY] : [];
+}
+
+async function markItemsPendingSync(items = []) {
+  const keys = items.map(itemKey).filter(Boolean);
+  if (!keys.length) return;
+  const pending = await getPendingSyncItems();
+  await chrome.storage.local.set({ [PENDING_SYNC_KEY]: Array.from(new Set([...pending, ...keys])).slice(-800) });
+}
+
+async function clearPendingSyncItems() {
+  await chrome.storage.local.set({ [PENDING_SYNC_KEY]: [] });
+}
 
 async function setSyncStatus(state, detail = '') {
   await chrome.storage.local.set({
@@ -112,7 +133,11 @@ async function collectSyncPayload() {
 async function autoSyncToSupabase() {
   if (isAutoSyncing || !SUPABASE_CONFIG.url || !SUPABASE_CONFIG.anonKey) return;
   const session = await getSyncSession();
-  if (!session?.accessToken || !session?.user?.id) return;
+  if (!session?.accessToken || !session?.user?.id) {
+    const pending = await getPendingSyncItems();
+    if (pending.length) await setSyncStatus('pending', `${pending.length} item(ns) aguardando login para sincronizar`);
+    return;
+  }
   isAutoSyncing = true;
   try {
     await setSyncStatus('syncing', 'Salvando alteracoes');
@@ -134,10 +159,12 @@ async function autoSyncToSupabase() {
       })
     });
     if (!response.ok) throw new Error(await response.text());
+    await clearPendingSyncItems();
     await setSyncStatus('synced', 'Sincronizado');
   } catch (error) {
     console.warn('StashWear autosync falhou:', error);
-    await setSyncStatus('error', 'Falha ao sincronizar');
+    const pending = await getPendingSyncItems();
+    await setSyncStatus('error', pending.length ? `${pending.length} item(ns) aguardando nova tentativa` : 'Falha ao sincronizar');
   } finally {
     isAutoSyncing = false;
   }
@@ -652,11 +679,91 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === PRICE_CHECK_ALARM) checkSavedPrices();
+  if (alarm.name === PRICE_CHECK_ALARM) {
+    checkSavedPrices();
+    autoSyncToSupabase();
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local') return;
+  if (changes.items) markItemsPendingSync(changes.items.newValue || []);
   if (!SYNC_DATA_KEYS.some(key => changes[key])) return;
   scheduleAutoSync();
+});
+
+async function notifyShortcutFailure() {
+  if (!chrome.notifications?.create) return;
+  await chrome.notifications.create(`stashwear-shortcut-${Date.now()}`, {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: 'StashWear',
+    message: 'Nao foi possivel detectar um produto nesta pagina.'
+  });
+}
+
+function normalizeShortcutData(tab, data = {}) {
+  const url = tab?.url || '';
+  const domain = (() => {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+  })();
+  const store = domain ? domain.split('.').find(part => !['www','shop','loja','store'].includes(part)) || domain.split('.')[0] : '';
+  const name = cleanText(data.name || tab?.title || '').replace(/^\s*comprar\s+/i, '') || '';
+  return {
+    name,
+    url,
+    imageUrl: data.imageUrl || null,
+    price: data.price || '',
+    store: store ? store.charAt(0).toUpperCase() + store.slice(1) : '',
+    category: data.category || 'Outro',
+    priority: 'casual',
+    note: '',
+    tags: [],
+    favorite: false,
+    curationPriority: 'media',
+    buyThisMonth: true,
+    priceSource: data.priceSource || '',
+    confidenceScore: data.confidenceScore ?? null,
+    saleInfo: data.saleInfo || { onSale: false, currentPrice: data.price || null },
+    priceHistory: data.price ? [{ price: data.price, checkedAt: Date.now(), source: 'shortcut' }] : [],
+    savedAt: Date.now()
+  };
+}
+
+async function saveCurrentTabFromCommand() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/^https?:\/\//i.test(tab.url || '')) {
+    await notifyShortcutFailure();
+    return;
+  }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['stashwear-scraper.js'] });
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => globalThis.StashWearScraper?.().scrapeProduct?.() || {}
+    });
+    const data = result?.[0]?.result || {};
+    if (!data.name && !data.price && !data.imageUrl) {
+      await notifyShortcutFailure();
+      return;
+    }
+    const items = await getItems();
+    const item = normalizeShortcutData(tab, data);
+    const existingIndex = items.findIndex(saved => saved.url === item.url && item.url);
+    if (existingIndex >= 0) {
+      items[existingIndex] = { ...items[existingIndex], ...item, savedAt: items[existingIndex].savedAt || item.savedAt, updatedAt: Date.now() };
+      items.unshift(items.splice(existingIndex, 1)[0]);
+    } else {
+      items.unshift(item);
+    }
+    await setItems(items);
+    await logActivity({ type: existingIndex >= 0 ? 'atualizada' : 'salvo', itemName: item.name, detail: item.price ? `Salva por ${item.price}` : 'Salva por atalho', url: item.url, imageUrl: item.imageUrl });
+  } catch (error) {
+    console.warn('StashWear atalho falhou:', error);
+    await notifyShortcutFailure();
+  }
+}
+
+chrome.commands?.onCommand?.addListener(command => {
+  if (command === 'save-current-piece') saveCurrentTabFromCommand();
 });

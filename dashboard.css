@@ -1274,6 +1274,10 @@ select option:checked,
   background:#ff3b5c;
   box-shadow:0 0 0 3px rgba(255,59,92,.18),0 0 18px rgba(255,59,92,.52);
 }
+.sync-status.pending .sync-dot{
+  background:#f59e0b;
+  box-shadow:0 0 0 3px rgba(245,158,11,.16),0 0 18px rgba(245,158,11,.42);
+}
 .sync-status.offline .sync-dot{
   background:#747474;
   box-shadow:0 0 0 3px rgba(160,160,160,.12),0 0 12px rgba(160,160,160,.18);
@@ -1281,6 +1285,7 @@ select option:checked,
 .sync-status.syncing{border-color:rgba(216,184,106,.42);color:#f2ddb0}
 .sync-status.synced{border-color:rgba(147,166,145,.42);color:#d7dfd4}
 .sync-status.error{border-color:rgba(239,68,68,.45);color:#fecaca}
+.sync-status.pending{border-color:rgba(245,158,11,.42);color:#fde2a7}
 .sync-status.offline{border-color:rgba(160,160,160,.22);color:#aaa}
 @keyframes sync-pulse{
   0%,100%{opacity:.55;transform:scale(.9)}

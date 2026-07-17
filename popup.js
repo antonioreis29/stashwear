@@ -337,6 +337,22 @@ function hideValidationNotice() {
   notice.style.display = 'none';
 }
 
+function setManualMode(enabled, missing = []) {
+  const panel = document.querySelector('.quick-edit-panel');
+  const details = panel?.querySelector('details');
+  const hint = panel?.querySelector('.manual-hint');
+  if (!panel || !details) return;
+  panel.classList.toggle('manual-mode', Boolean(enabled));
+  if (enabled) details.open = true;
+  if (hint) {
+    const labels = { name: 'nome', price: 'preco', image: 'imagem' };
+    const text = missing.map(key => labels[key]).filter(Boolean).join(', ');
+    hint.textContent = text
+      ? `Complete manualmente: ${text}. Voce ainda pode salvar a peca.`
+      : 'Revise ou complete os campos antes de salvar.';
+  }
+}
+
 function showToast(message, type = 'info') {
   const stack = document.getElementById('popup-toast-stack');
   if (!stack) return;
@@ -443,6 +459,11 @@ function renderSavePreview(tab, data = {}) {
   const name = data.name || tab?.title || 'Peca detectada';
   const price = data.price || '';
   const saleText = data.saleInfo?.onSale ? ` · ${saleBadgeText(data)}` : '';
+  const missing = [
+    !name ? 'name' : '',
+    !price ? 'price' : '',
+    !data.imageUrl ? 'image' : ''
+  ].filter(Boolean);
 
   setFieldValue('item-name', name);
   setFieldValue('item-price', price);
@@ -465,6 +486,7 @@ function renderSavePreview(tab, data = {}) {
   if (thumb) {
     thumb.innerHTML = data.imageUrl ? `<img src="${escapeHtml(data.imageUrl)}" alt="">` : '<div class="thumb-placeholder">◇</div>';
   }
+  setManualMode(Boolean(missing.length || data.validationReason === 'low_confidence'), missing);
 }
 
 // ── Filtros ────────────────────────────────────────────────────────────────
@@ -814,11 +836,9 @@ document.getElementById('btn-save-item').addEventListener('click', async () => {
   try {
     const { tab, data } = await scrapeCurrentPage();
     const currentUrl = tab?.url || '';
-    if (!data?.isProductPage || !data?.isFashion) {
-      btn.textContent = 'Pagina nao reconhecida';
-      showValidationNotice(productValidationMessage(!data?.isProductPage ? data?.validationReason : 'not_fashion'));
-      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1800);
-      return;
+    if (!data?.isProductPage || !data?.isFashion || data?.validationReason) {
+      showValidationNotice(productValidationMessage(!data?.isProductPage ? data?.validationReason : (!data?.isFashion ? 'not_fashion' : data.validationReason)));
+      setManualMode(true, [!data?.name ? 'name' : '', !data?.price ? 'price' : '', !data?.imageUrl ? 'image' : ''].filter(Boolean));
     }
     const typedName = document.getElementById('item-name').value.trim();
     const typedPrice = document.getElementById('item-price').value.trim();

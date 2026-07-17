@@ -13,6 +13,7 @@ const setNotifications = value => save('notifications', value);
 const getDeletedItemKeys = () => get('deletedItemKeys');
 const setDeletedItemKeys = value => save('deletedItemKeys', value);
 const SYNC_STATUS_KEY = 'stashwearSyncStatus';
+const PENDING_SYNC_KEY = 'stashwearPendingSyncItems';
 const THEME_KEY = 'stashwearTheme';
 const getStorageObject = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
 
@@ -25,6 +26,12 @@ let state = {
   view: 'collection',
   search: '',
   sort: 'date',
+  filters: {
+    search: '',
+    type: 'todos',
+    store: 'todos',
+    priority: 'todos'
+  },
   priorityFilter: 'todos',
   typeFilter: 'todos',
   storeFilter: 'todos',
@@ -34,10 +41,12 @@ let state = {
   folderPickerOpen: false,
   editingFolderId: null,
   editingStoreIndex: null,
-  isLoading: true
+  isLoading: true,
+  pendingSyncItems: []
 };
 let accountMode = 'login';
 let pendingRecoverySession = null;
+let searchDebounceTimer = null;
 
 function normalizeTheme(value) {
   return ['light', 'dark'].includes(value) ? value : 'dark';
@@ -273,6 +282,8 @@ function showToast(message, type = 'info') {
   }, 2600);
 }
 function syncStatusLabel(status, isLoggedIn) {
+  const pendingCount = state.pendingSyncItems.length;
+  if (pendingCount) return `${pendingCount} pendente(s)`;
   if (!isLoggedIn) return 'Offline';
   if (status?.state === 'syncing') return 'Salvando...';
   if (status?.state === 'synced') return 'Sincronizado';
@@ -288,11 +299,12 @@ async function refreshSyncStatus() {
   if (!el || !label) return;
   const [session, storage] = await Promise.all([
     window.StashWearSync?.getSession?.(),
-    getStorageObject(SYNC_STATUS_KEY)
+    getStorageObject([SYNC_STATUS_KEY, PENDING_SYNC_KEY])
   ]);
   const isLoggedIn = Boolean(session?.user?.id);
   const status = storage[SYNC_STATUS_KEY] || null;
-  const stateName = isLoggedIn ? (status?.state || 'synced') : 'offline';
+  state.pendingSyncItems = Array.isArray(storage[PENDING_SYNC_KEY]) ? storage[PENDING_SYNC_KEY] : [];
+  const stateName = state.pendingSyncItems.length ? 'pending' : (isLoggedIn ? (status?.state || 'synced') : 'offline');
   el.className = `sync-status ${stateName}`;
   label.textContent = syncStatusLabel(status, isLoggedIn);
   el.title = status?.detail || label.textContent;
@@ -784,6 +796,17 @@ function hasPriceDrop(item) {
   const high = getHighestPrice(item);
   return current !== null && high !== null && high > current * 1.03;
 }
+function targetPriceValue(item) {
+  return parsePrice(item?.targetPrice || item?.target_price || item?.priceTarget);
+}
+function isTargetPriceReached(item) {
+  const current = trustedCurrentPrice(item).value;
+  const target = targetPriceValue(item);
+  return current !== null && target !== null && current <= target;
+}
+function isPriceOpportunity(item) {
+  return hasPriceDrop(item) || isOnSale(item) || isTargetPriceReached(item);
+}
 function isOnSale(item) {
   const current = trustedCurrentPrice(item).value;
   const original = parsePrice(item.saleInfo?.originalPrice);
@@ -859,22 +882,30 @@ function pickCurrentCuration(items) {
 function sortItems(items) {
   const list = [...items];
   if (state.sort === 'curation') return list.sort((a,b) => getCurationScore(b) - getCurationScore(a));
+  if (state.sort === 'priceDrop') return list.sort((a,b) => Number(isPriceOpportunity(b)) - Number(isPriceOpportunity(a)) || getCurationScore(b) - getCurationScore(a));
   if (state.sort === 'priceDesc') return list.sort((a,b) => (parsePrice(b.price) || 0) - (parsePrice(a.price) || 0));
   if (state.sort === 'priceAsc') return list.sort((a,b) => (parsePrice(a.price) || 999999999) - (parsePrice(b.price) || 999999999));
   if (state.sort === 'store') return list.sort((a,b) => String(a.store || '').localeCompare(String(b.store || ''), 'pt-BR'));
   return list.sort((a,b) => Number(b.savedAt || b.updatedAt || 0) - Number(a.savedAt || a.updatedAt || 0));
 }
 function applySearch(items) {
-  const q = foldText(state.search).trim();
+  const q = foldText(state.filters.search).trim();
   if (!q) return items;
   return items.filter(item => foldText([item.name, item.store, item.category, item.note, item.price, item.url, getItemType(item), priorityLabel(item), ...getTags(item)].join(' ')).includes(q));
 }
 function applyStoreFilter(items) {
-  if (state.storeFilter === 'todos') return items;
+  if (state.filters.store === 'todos') return items;
   return items.filter(item => {
     const domain = extractDomain(item.url);
-    return String(item.store || '').toLowerCase() === state.storeFilter || domain === state.storeFilter;
+    return String(item.store || '').toLowerCase() === state.filters.store || domain === state.filters.store;
   });
+}
+function applyPriorityFilter(items) {
+  if (state.filters.priority === 'todos') return items;
+  return items.filter(item => getPriorityLevel(item) === state.filters.priority);
+}
+function applyCollectionFilters(items) {
+  return applyPriorityFilter(applyStoreFilter(applyTypeFilter(applySearch(items))));
 }
 function renderGlobalSearch() {
   const panel = document.getElementById('global-search-panel');
@@ -901,10 +932,14 @@ function renderGlobalSearch() {
   </div>`;
   panel.querySelectorAll('.global-result').forEach(btn => btn.addEventListener('click', () => {
     if (btn.dataset.globalType === 'piece') {
-      state.search = state.globalSearch;
-      state.typeFilter = 'todos';
-      state.storeFilter = 'todos';
-      document.getElementById('search-input').value = state.search;
+      state.filters.search = state.globalSearch;
+      state.filters.type = 'todos';
+      state.filters.store = 'todos';
+      state.filters.priority = 'todos';
+      state.search = state.filters.search;
+      state.typeFilter = state.filters.type;
+      state.storeFilter = state.filters.store;
+      document.getElementById('search-input').value = state.filters.search;
       activateView('collection');
       renderCollection();
     } else if (btn.dataset.globalType === 'store') {
@@ -981,18 +1016,24 @@ function renderDecisions() {
   el.innerHTML = cards.map(renderDecisionCard).join('');
   el.querySelectorAll('[data-decision]').forEach(btn => btn.addEventListener('click', () => {
     const decision = btn.dataset.decision;
+    state.filters.search = '';
+    state.filters.type = 'todos';
+    state.filters.store = 'todos';
+    state.filters.priority = 'todos';
     state.search = '';
     state.typeFilter = 'todos';
     state.storeFilter = 'todos';
     document.getElementById('search-input').value = '';
     if (decision === 'buy') {
       state.priorityFilter = 'alta';
+      state.filters.priority = 'alta';
       activateView('priorities');
       renderPriorities();
       return;
     }
     if (decision === 'review') {
       state.priorityFilter = 'media';
+      state.filters.priority = 'media';
       activateView('priorities');
       renderPriorities();
       return;
@@ -1052,6 +1093,7 @@ function itemCardHtml(item, index, options = {}) {
   const lowest = getLowestPrice(item);
   const dropped = hasPriceDrop(item);
   const onSale = isOnSale(item);
+  const targetReached = isTargetPriceReached(item);
   const displayName = cleanDisplayName(item.name);
   const nameClass = getNameSizeClass(displayName);
   const priority = getPriorityLevel(item);
@@ -1069,7 +1111,7 @@ function itemCardHtml(item, index, options = {}) {
         <span class="priority-badge priority-${priority}">${priorityLabel(item)}</span>
         <span class="piece-type">${escapeHtml(getItemType(item))}</span>
         ${onSale ? `<span class="sale-pill">${escapeHtml(saleBadgeText(item))}</span>` : ''}
-        ${dropped && lowest !== null && price !== null ? `<span class="price-drop-pill">Preço caiu</span>` : ''}
+        ${(dropped || targetReached) && price !== null ? `<span class="price-drop-pill">${targetReached ? 'Meta atingida' : 'Preço caiu'}</span>` : ''}
       </div>
       <div class="priority-toggle" aria-label="Prioridade da peça">
         <button class="${getPriorityLevel(item)==='alta'?'active':''}" data-action="priority" data-value="alta" title="Prioridade Alta"><span>Alta</span></button>
@@ -1106,8 +1148,8 @@ function renderTypeFilters() {
     counts.set(type, (counts.get(type) || 0) + 1);
   });
   const options = [['todos', 'Todos os tipos', state.items.length], ...Array.from(counts.entries()).sort((a,b) => b[1] - a[1]).map(([type,count]) => [type, type, count])];
-  el.innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.typeFilter===key?'active':''}" data-type="${escapeHtml(key)}">${escapeHtml(label)} · ${count}</button>`).join('');
-  el.querySelectorAll('[data-type]').forEach(btn => btn.addEventListener('click', () => { state.typeFilter = btn.dataset.type; renderCollection(); }));
+  el.innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.filters.type===key?'active':''}" data-type="${escapeHtml(key)}">${escapeHtml(label)} · ${count}</button>`).join('');
+  el.querySelectorAll('[data-type]').forEach(btn => btn.addEventListener('click', () => { state.filters.type = btn.dataset.type; state.typeFilter = state.filters.type; renderCollection(); }));
 }
 function renderStoreFilters() {
   const el = document.getElementById('store-filter-dashboard');
@@ -1121,20 +1163,21 @@ function renderStoreFilters() {
     counts.set(key, current);
   });
   const options = [{ key:'todos', label:'Todas as lojas', count:state.items.length }, ...Array.from(counts.entries()).map(([key, data]) => ({ key, ...data })).sort((a,b) => b.count - a.count)];
-  el.innerHTML = options.map(opt => `<button class="filter-chip ${state.storeFilter===opt.key?'active':''}" data-store-filter="${escapeHtml(opt.key)}">${escapeHtml(opt.label)} · ${opt.count}</button>`).join('');
+  el.innerHTML = options.map(opt => `<button class="filter-chip ${state.filters.store===opt.key?'active':''}" data-store-filter="${escapeHtml(opt.key)}">${escapeHtml(opt.label)} · ${opt.count}</button>`).join('');
   el.querySelectorAll('[data-store-filter]').forEach(btn => btn.addEventListener('click', () => {
-    state.storeFilter = btn.dataset.storeFilter;
+    state.filters.store = btn.dataset.storeFilter;
+    state.storeFilter = state.filters.store;
     renderCollection();
   }));
 }
 function applyTypeFilter(items) {
-  if (state.typeFilter === 'todos') return items;
-  return items.filter(item => getItemType(item) === state.typeFilter);
+  if (state.filters.type === 'todos') return items;
+  return items.filter(item => getItemType(item) === state.filters.type);
 }
 function renderCollection() {
   renderTypeFilters();
   renderStoreFilters();
-  renderGrid('collection-grid', sortItems(applyStoreFilter(applyTypeFilter(applySearch(state.items)))));
+  renderGrid('collection-grid', sortItems(applyCollectionFilters(state.items)));
 }
 function renderPriorityFilters() {
   const options = [
@@ -1144,11 +1187,15 @@ function renderPriorityFilters() {
     ['baixa', 'Baixa', state.items.filter(i => getPriorityLevel(i) === 'baixa').length]
   ];
   document.getElementById('priority-filter-dashboard').innerHTML = options.map(([key,label,count]) => `<button class="filter-chip ${state.priorityFilter===key?'active':''}" data-priority="${key}">${label} · ${count}</button>`).join('');
-  document.querySelectorAll('[data-priority]').forEach(btn => btn.addEventListener('click', () => { state.priorityFilter = btn.dataset.priority; renderPriorities(); }));
+  document.querySelectorAll('[data-priority]').forEach(btn => btn.addEventListener('click', () => {
+    state.priorityFilter = btn.dataset.priority;
+    state.filters.priority = state.priorityFilter;
+    renderPriorities();
+  }));
 }
 function renderPriorities() {
   renderPriorityFilters();
-  let items = state.items;
+  let items = applyStoreFilter(applyTypeFilter(applySearch(state.items)));
   if (state.priorityFilter !== 'todos') items = items.filter(i => getPriorityLevel(i) === state.priorityFilter);
   items = items.sort((a,b) => getCurationScore(b) - getCurationScore(a));
   renderGrid('priorities-grid', items);
@@ -1442,6 +1489,8 @@ async function loadData() {
   state.folders = (await getFolders()).map(normalizeFolder);
   state.stores = await getStores();
   state.notifications = await getNotifications();
+  const pendingData = await getStorageObject(PENDING_SYNC_KEY);
+  state.pendingSyncItems = Array.isArray(pendingData[PENDING_SYNC_KEY]) ? pendingData[PENDING_SYNC_KEY] : [];
   ensureSelectedFolder();
   state.isLoading = false;
   renderAll();
@@ -1510,7 +1559,10 @@ document.querySelectorAll('.dash-tab').forEach(btn => {
 });
 document.getElementById('global-search-input')?.addEventListener('input', e => {
   state.globalSearch = e.target.value;
-  state.search = e.target.value;
+  state.filters.search = e.target.value;
+  state.search = state.filters.search;
+  state.filters.type = 'todos';
+  state.filters.store = 'todos';
   state.typeFilter = 'todos';
   state.storeFilter = 'todos';
   const collectionSearch = document.getElementById('search-input');
@@ -1521,7 +1573,12 @@ document.getElementById('global-search-input')?.addEventListener('input', e => {
   }
   renderGlobalSearch();
 });
-document.getElementById('search-input').addEventListener('input', e => { state.search = e.target.value; renderCollection(); });
+document.getElementById('search-input').addEventListener('input', e => {
+  state.filters.search = e.target.value;
+  state.search = state.filters.search;
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(renderCollection, 300);
+});
 document.getElementById('sort-select-dashboard').addEventListener('change', e => { state.sort = e.target.value; renderCollection(); });
 document.getElementById('folder-form')?.addEventListener('submit', async e => {
   e.preventDefault();
@@ -1609,6 +1666,15 @@ document.getElementById('btn-account-logout')?.addEventListener('click', async (
     confirmLabel: 'Sair da conta'
   });
   if (!ok) return;
+  try {
+    await setSyncStatus('syncing', 'Salvando colecao antes de sair');
+    await window.StashWearSync?.syncNow?.();
+    await setSyncStatus('synced', 'Sincronizado');
+  } catch (error) {
+    await setSyncStatus('error', 'Falha ao salvar antes de sair');
+    showToast(authErrorMessage(error), 'danger');
+    return;
+  }
   await window.StashWearSync?.signOut?.();
   await Promise.all([
     setItems([]),
@@ -1644,7 +1710,7 @@ chrome.storage?.onChanged?.addListener((changes, areaName) => {
     state.notifications = changes.notifications.newValue || [];
     renderNotifications();
   }
-  if (changes[SYNC_STATUS_KEY] || changes.stashwearSupabaseSession) refreshSyncStatus();
+  if (changes[SYNC_STATUS_KEY] || changes[PENDING_SYNC_KEY] || changes.stashwearSupabaseSession) refreshSyncStatus();
   if (changes[THEME_KEY]) applyTheme(changes[THEME_KEY].newValue || 'dark');
 });
 document.getElementById('btn-open-popup-tip').addEventListener('click', showPopupTipDialog);

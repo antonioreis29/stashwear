@@ -60,6 +60,20 @@ h1{margin:0;font-size:22px;line-height:.9;font-weight:900;letter-spacing:-.07em}
 .preview-copy{min-width:0}.preview-copy strong{display:block;margin-top:3px;font-size:13px;line-height:1.12;letter-spacing:-.04em;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .preview-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.preview-meta span{border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);color:#d8d8d8;font-size:9px;font-weight:850;padding:5px 6px;line-height:1}
 .quick-edit-panel .auto-field{display:none}
+.quick-edit-panel.manual-mode .auto-field{display:flex}
+.quick-edit-panel.manual-mode details{
+  border-color:var(--warning-border);
+  background:linear-gradient(180deg,var(--warning-soft),rgba(255,255,255,.035));
+}
+.manual-hint{
+  display:none;
+  margin:0 12px 10px;
+  color:var(--warning);
+  font-size:10px;
+  line-height:1.35;
+  font-weight:850;
+}
+.quick-edit-panel.manual-mode .manual-hint{display:block}
 .quick-edit-panel .field-group:has(#item-target-price){display:flex}
 .quick-edit-panel .field-group:has(#item-priority){display:none}
 .quick-edit-panel details{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.035);overflow:hidden}
